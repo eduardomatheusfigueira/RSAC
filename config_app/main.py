@@ -122,7 +122,11 @@ Diretrizes de resposta:
 1. Responda ESTRITAMENTE em formato JSON válido, sem texto explicativo ou markdown fora do JSON.
 2. Seja objetivo, direto e completo, utilizando linguagem acadêmica precisa.
 3. Preencha todos os campos do formulário do protocolo selecionado de acordo com as chaves solicitadas.
-4. Para o campo 'busca': forneça APENAS as strings booleanas puras de palavras-chave (ex: '("termo A" OR "termo B") AND ("termo C" OR "termo D")'). É EXTREMAMENTE IMPORTANTE NÃO incluir rótulos, nomes de bases ou prefixos como 'SciELO/BDTD:', 'PubMed:', '[SciELO]:', 'Busca:' etc., para evitar que nomes de bases de dados sejam pesquisados erroneamente como palavras-chave.
+4. Para o campo 'busca' (Estratégia de Busca Booleana):
+   a. Estruture a busca em no máximo 2 a 3 eixos conceituais (ex: Eixo Metodologia/Intervenção AND Eixo Objeto/Tema).
+   b. Dentro de cada eixo, agrupe sinônimos e variações com o operador 'OR' entre parênteses, combinando termos em Português e Inglês (ex: '("avaliação de impacto" OR "inferência causal" OR "causalidade" OR "impact evaluation") AND ("desenvolvimento regional" OR "planejamento regional" OR "regional development")').
+   c. Evite o uso de mais de 3 operadores 'AND' simultâneos ou aspas rígidas em termos metodológicos raros, para prevenir a sobrespecificidade e a recuperação zerada de artigos.
+   d. Forneça APENAS as strings booleanas puras. NÃO inclua rótulos ou prefixos como 'SciELO/BDTD:', 'PubMed:', '[SciELO]:', 'Busca:' etc.
 5. Defina critérios de inclusão e exclusão claros, operacionais e objetivos.
 6. Defina 'campos_extracao' (questões de extração de dados) relevantes, abrangentes e específicos para responder aos objetivos da revisão (itens separados por \\n).
 """
