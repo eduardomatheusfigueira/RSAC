@@ -22,6 +22,7 @@ config_app/config_gemini.json
 
 # Logs
 *.log
+log_*.txt
 log_execucao_*.txt
 
 # PDFs and user downloads
