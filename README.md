@@ -1,10 +1,10 @@
-# 🔬 RSAC - Sistema Automatizado de Revisão Sistemática da Literatura
+# 🔬 RSAC - Revisão Sistemática Assistida por Computador
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![AI Partner](https://img.shields.io/badge/AI%20Partner-Google%20Gemini-orange.svg)](https://deepmind.google/technologies/gemini/)
 
-O **RSAC (Sistema de Revisão Sistemática da Literatura)** é uma plataforma desktop e linha de comando integrada para automação end-to-end de **Revisões Sistemáticas da Literatura (SLR)** e **Mapeamentos Sistemáticos**. 
+O **RSAC (Revisão Sistemática Assistida por Computador)** é uma plataforma desktop e linha de comando integrada para automação end-to-end de **Revisões Sistemáticas da Literatura (SLR)** e **Mapeamentos Sistemáticos**. 
 
 O sistema guia o pesquisador desde a **definição rigorosa do protocolo metodológico** (com suporte de Inteligência Artificial), passando pela **coleta automatizada em múltiplas bases acadêmicas**, **deduplicação**, **triagem de títulos/resumos**, até a **extração automatizada de dados a partir dos PDFs integrais**.
 
