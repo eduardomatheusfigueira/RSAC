@@ -1,0 +1,35 @@
+{
+    "db_path": "2_openalex_metadata.db",
+    "export_path": "2_openalex_resultados.xlsx",
+    "limit": null,
+    "delay": 2.5,
+    "email": "eduardo.figueira@sou.unijui.edu.br",
+    "api_key": "sdAhuGYkdFV4Wz3UQdIGPr",
+    "filters": {
+        "type": "",
+        "publication_year": "",
+        "language": ""
+    },
+    "keywords": [
+        "\"turismo transfronteiriço\" AND \"mobilidade\"",
+        "\"turismo transfronteiriço\" AND \"integração\"",
+        "\"turismo transfronteiriço\" AND \"mobility\"",
+        "\"turismo transfronteiriço\" AND \"integration\"",
+        "\"turismo transfronteiriço\" AND \"corredor bioceânico\"",
+        "\"turismo de fronteira\" AND \"mobilidade\"",
+        "\"turismo de fronteira\" AND \"integração\"",
+        "\"turismo de fronteira\" AND \"mobility\"",
+        "\"turismo de fronteira\" AND \"integration\"",
+        "\"turismo de fronteira\" AND \"corredor bioceânico\"",
+        "\"cross-border tourism\" AND \"mobilidade\"",
+        "\"cross-border tourism\" AND \"integração\"",
+        "\"cross-border tourism\" AND \"mobility\"",
+        "\"cross-border tourism\" AND \"integration\"",
+        "\"cross-border tourism\" AND \"corredor bioceânico\"",
+        "\"border tourism\" AND \"mobilidade\"",
+        "\"border tourism\" AND \"integração\"",
+        "\"border tourism\" AND \"mobility\"",
+        "\"border tourism\" AND \"integration\"",
+        "\"border tourism\" AND \"corredor bioceânico\""
+    ]
+}

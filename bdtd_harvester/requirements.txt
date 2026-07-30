@@ -1,0 +1,5 @@
+git+https://github.com/AcademicAI/bdtd-scraper.git
+pandas
+openpyxl
+requests>=2.31.0
+beautifulsoup4>=4.12.0

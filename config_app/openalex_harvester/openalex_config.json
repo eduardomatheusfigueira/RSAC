@@ -1,0 +1,17 @@
+{
+    "db_path": "2_openalex_metadata.db",
+    "export_path": "2_openalex_resultados.xlsx",
+    "limit": null,
+    "delay": 2.5,
+    "email": "eduardo.figueira@sou.unijui.edu.br",
+    "api_key": "sdAhuGYkdFV4Wz3UQdIGPr",
+    "filters": {
+        "type": "",
+        "publication_year": "",
+        "language": ""
+    },
+    "keywords": [
+        "\"inferência causal\"",
+        "\"causalidade\""
+    ]
+}

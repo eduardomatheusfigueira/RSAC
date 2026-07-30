@@ -1,0 +1,10 @@
+{
+  "db_path": "pubmed_metadata.db",
+  "export_path": "pubmed_resultados.xlsx",
+  "limit": null,
+  "delay": 0.35,
+  "api_key": "",
+  "keywords": [
+    "(\"inferência causal\" OR \"causal inference\") AND (\"descoberta causal\" OR \"causal discovery\")"
+  ]
+}
