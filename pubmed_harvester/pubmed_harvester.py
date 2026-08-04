@@ -531,8 +531,14 @@ def main():
         config_file = "pubmed_config.json"
 
     if config_file and os.path.exists(config_file):
-        with open(config_file, "r", encoding="utf-8") as f:
-            config = json.load(f)
+        try:
+            from config_app.core.config_schemas import PubMedConfig, load_and_validate_config
+            validated = load_and_validate_config(config_file, PubMedConfig)
+            config = validated.model_dump()
+        except Exception as e:
+            logger.warning(f"Validação de schema via Pydantic falhou ou indisponível ({e}). Usando fallback de leitura bruta.")
+            with open(config_file, "r", encoding="utf-8") as f:
+                config = json.load(f)
     else:
         # Defaults
         config = {

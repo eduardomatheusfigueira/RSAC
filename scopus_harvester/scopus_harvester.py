@@ -164,11 +164,17 @@ def fetch_abstract_retrieval(eid: str, api_key: str, headers: dict) -> str:
 # ============================================================
 def read_json_config(file_path: str) -> dict:
     """
-    Reads configuration from JSON.
+    Reads configuration from JSON using Pydantic schema validation.
     """
     logger.info(f"Reading configuration from JSON: {file_path}")
-    with open(file_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        from config_app.core.config_schemas import ScopusConfig, load_and_validate_config
+        validated = load_and_validate_config(file_path, ScopusConfig)
+        data = validated.model_dump()
+    except Exception as e:
+        logger.warning(f"Validação de schema via Pydantic falhou ou indisponível ({e}). Usando fallback de leitura bruta.")
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
     return {
         "keywords": data.get("keywords", []),

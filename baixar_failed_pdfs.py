@@ -17,8 +17,18 @@ import pypdf
 # Disable SSL verification warnings for Brazilian university repositories with misconfigured SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-JSON_PATH = os.path.join("Revisão teste", "triagem2_sessao.json")
-OUTPUT_PDF_DIR = os.path.join("Revisão teste", "pdfs")
+# Centralized path resolution
+try:
+    from config_app.utils.path_resolver import resolve_path
+except ImportError:
+    from pathlib import Path as _Path
+    _BASE = _Path(__file__).resolve().parent
+    def resolve_path(p):
+        _p = _Path(p)
+        return _p if _p.is_absolute() else _BASE / _p
+
+JSON_PATH = str(resolve_path(os.path.join("Revisão teste", "triagem2_sessao.json")))
+OUTPUT_PDF_DIR = str(resolve_path(os.path.join("Revisão teste", "pdfs")))
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

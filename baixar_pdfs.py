@@ -19,9 +19,22 @@ import pypdf
 # Disable SSL verification warnings for university repositories with misconfigured SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Configurations
-JSON_PATH = os.path.join("Revisão teste", "triagem2_sessao.json")
-OUTPUT_PDF_DIR = os.path.join("Revisão teste", "pdfs")
+# Centralized path resolution
+try:
+    from config_app.utils.path_resolver import resolve_path
+except ImportError:
+    import sys as _sys
+    from pathlib import Path as _Path
+    _BASE = _Path(__file__).resolve().parent
+    if str(_BASE) not in _sys.path:
+        _sys.path.insert(0, str(_BASE))
+    def resolve_path(p):
+        _p = _Path(p)
+        return _p if _p.is_absolute() else _BASE / _p
+
+# Configurations — resolved relative to project root
+JSON_PATH = str(resolve_path(os.path.join("Revisão teste", "triagem2_sessao.json")))
+OUTPUT_PDF_DIR = str(resolve_path(os.path.join("Revisão teste", "pdfs")))
 
 # Request Headers to mimic a browser and avoid basic anti-bot blocks
 HEADERS = {

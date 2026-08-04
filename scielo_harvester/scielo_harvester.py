@@ -79,10 +79,17 @@ def create_json_config_template(file_path):
 
 
 def read_json_config_file(file_path):
-    """Reads search settings and keywords from a JSON configuration file."""
+    """Reads search settings and keywords from a JSON configuration file using Pydantic schema validation."""
     logger.info(f"Reading configuration from JSON: {file_path}")
-    with open(file_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        from config_app.core.config_schemas import ScieloConfig, load_and_validate_config
+        validated = load_and_validate_config(file_path, ScieloConfig)
+        data = validated.model_dump()
+    except Exception as e:
+        logger.warning(f"Validação de schema via Pydantic falhou ou indisponível ({e}). Usando fallback de leitura bruta.")
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
     config = {
         "db_path": data.get("db_path", "scielo_metadata.db"),
         "export_path": data.get("export_path", "scielo_resultados.xlsx"),

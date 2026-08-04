@@ -60,14 +60,26 @@ def sanitize_bdtd_filters(raw_filters):
     allowed_languages = set()
 
     for f in (raw_filters or []):
+        if not f or not isinstance(f, str):
+            continue
+        f_str = f.strip()
+        if not f_str:
+            continue
+
         # Match both "language:xxx" and "~language:xxx"
-        stripped = f.lstrip('~')
+        stripped = f_str.lstrip('~')
         if stripped.startswith('language:'):
             lang_code = stripped.split(':', 1)[1].strip()
             if lang_code:
                 allowed_languages.add(lang_code)
         else:
-            api_filters.append(f)
+            # Must be a valid key:value pair with non-empty value
+            if ':' in f_str:
+                field, val = f_str.split(':', 1)
+                if field.strip() and val.strip():
+                    api_filters.append(f_str)
+            else:
+                logger.warning(f"Ignorando filtro BDTD inválido/vazio: '{f_str}'")
 
     # Enforce the WAF limit
     if len(api_filters) > BDTD_MAX_API_FILTERS:
@@ -409,28 +421,34 @@ def create_json_config_template(file_path):
 
 def read_json_config_file(file_path):
     """
-    Reads search settings and keywords from the JSON configuration file.
+    Reads search settings and keywords from the JSON configuration file using Pydantic schema validation.
     """
-    import json
     logger.info(f"Reading configuration from JSON: {file_path}")
     
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-        
+    try:
+        from config_app.core.config_schemas import BDTDConfig, load_and_validate_config
+        validated = load_and_validate_config(file_path, BDTDConfig)
+        raw_data = validated.model_dump()
+    except Exception as e:
+        logger.warning(f"Validação de schema via Pydantic falhou ou indisponível ({e}). Usando fallback de leitura bruta.")
+        import json
+        with open(file_path, 'r', encoding='utf-8') as f:
+            raw_data = json.load(f)
+
     config = {
-        'db_path': data.get('db_path', 'bdtd_metadata.db'),
-        'export_excel': data.get('export_path', 'resultados_coleta.xlsx'),
-        'limit': data.get('limit'),
-        'delay': float(data.get('delay', 2.0)),
-        'search_type': data.get('search_type', 'AllFields'),
-        'sort_order': data.get('sort_order', 'year'),
+        'db_path': raw_data.get('db_path', 'bdtd_metadata.db'),
+        'export_excel': raw_data.get('export_path', 'resultados_coleta.xlsx'),
+        'limit': raw_data.get('limit'),
+        'delay': float(raw_data.get('delay', 2.0)),
+        'search_type': raw_data.get('search_type', 'AllFields'),
+        'sort_order': raw_data.get('sort_order', 'year'),
         'filters': [],
-        'scrape_details': data.get('scrape_details', True),
-        'keywords': data.get('keywords', [])
+        'scrape_details': raw_data.get('scrape_details', True),
+        'keywords': raw_data.get('keywords', [])
     }
     
     # Process filters
-    filters_dict = data.get('filters', {})
+    filters_dict = raw_data.get('filters', {})
     if isinstance(filters_dict, dict):
         for key, val in filters_dict.items():
             if val:

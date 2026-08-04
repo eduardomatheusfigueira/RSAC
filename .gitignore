@@ -1,1 +1,40 @@
-Nothing needs to be added to .gitignore since only a markdown file (PLANO_CONSOLIDACAO.md) was added, which is a source/config file and not a build artifact, dependency, or temporary file.
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller / Build outputs
+build/
+dist/
+*.spec.bak
+
+# Local databases and spreadsheets
+*.db
+*.sqlite3
+*.xlsx
+*.csv
+
+# Sensitive configuration / API Keys
+config_gemini.json
+config_app/config_gemini.json
+.env
+.env.*
+
+# Logs
+*.log
+log_*.txt
+log_execucao_*.txt
+
+# PDFs and user downloads / session outputs
+pdfs/
+Revisão teste/
+causalidade/
+
+# Test cache
+.pytest_cache/
+
+# IDE & System files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

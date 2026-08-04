@@ -217,16 +217,24 @@ def read_json_config(file_path: str) -> dict:
         }
     else:
         # 2. Standard flat format
-        filters_dict = data.get("filters", {})
+        try:
+            from config_app.core.config_schemas import OpenAlexConfig, load_and_validate_config
+            validated = load_and_validate_config(file_path, OpenAlexConfig)
+            vdata = validated.model_dump()
+        except Exception as e:
+            logger.warning(f"Validação de schema via Pydantic falhou ou indisponível ({e}). Usando fallback de leitura bruta.")
+            vdata = data
+
+        filters_dict = vdata.get("filters", {})
         return {
             "is_nested": False,
-            "keywords": data.get("keywords", []),
-            "db_path": data.get("db_path", "openalex_metadata.db"),
-            "export_path": data.get("export_path", "openalex_resultados.xlsx"),
-            "limit": data.get("limit"),
-            "delay": float(data.get("delay", 1.0)),
-            "email": data.get("email", ""),
-            "api_key": data.get("api_key", ""),
+            "keywords": vdata.get("keywords", []),
+            "db_path": vdata.get("db_path", "openalex_metadata.db"),
+            "export_path": vdata.get("export_path", "openalex_resultados.xlsx"),
+            "limit": vdata.get("limit"),
+            "delay": float(vdata.get("delay", 1.0)),
+            "email": vdata.get("email", ""),
+            "api_key": vdata.get("api_key", ""),
             "filters": filters_dict,
             "output_dir": None,
             "csv_path": None,

@@ -16,6 +16,21 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+# Centralized path resolution
+try:
+    from config_app.utils.path_resolver import resolve_path, BASE_DIR
+except ImportError:
+    # Fallback: if running standalone without config_app in path
+    import sys
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    if _script_dir not in sys.path:
+        sys.path.insert(0, _script_dir)
+    from pathlib import Path as _Path
+    BASE_DIR = _Path(_script_dir)
+    def resolve_path(p):
+        _p = _Path(p)
+        return _p if _p.is_absolute() else BASE_DIR / _p
+
 def normalize_title(title: str) -> str:
     """
     Normalizes titles by converting to lowercase, removing punctuation,
@@ -103,31 +118,31 @@ def main():
     # For SQLite databases, look both in root and in subfolders
     sources_to_load = {
         "OpenAlex": {
-            "db": ["openalex_metadata.db", "openalex_harvester/openalex_metadata.db"],
+            "db": [str(resolve_path("openalex_metadata.db")), str(resolve_path("openalex_harvester/openalex_metadata.db"))],
             "table": "openalex_metadata",
-            "csv": ["openalex_outputs/openalex_clean_data.csv"],
-            "xlsx": ["openalex_outputs/OpenAlex_Data_Export.xlsx"],
+            "csv": [str(resolve_path("openalex_outputs/openalex_clean_data.csv"))],
+            "xlsx": [str(resolve_path("openalex_outputs/OpenAlex_Data_Export.xlsx"))],
             "mapping": {"id": "id"}
         },
         "SciELO": {
-            "db": ["scielo_metadata.db", "scielo_harvester/scielo_metadata.db"],
+            "db": [str(resolve_path("scielo_metadata.db")), str(resolve_path("scielo_harvester/scielo_metadata.db"))],
             "table": "scielo_metadata",
-            "csv": ["scielo_outputs/scielo_clean_data.csv"],
-            "xlsx": ["scielo_outputs/SciELO_Data_Export.xlsx"],
+            "csv": [str(resolve_path("scielo_outputs/scielo_clean_data.csv"))],
+            "xlsx": [str(resolve_path("scielo_outputs/SciELO_Data_Export.xlsx"))],
             "mapping": {"id": "id"}
         },
         "Scopus": {
-            "db": ["scopus_metadata.db", "scopus_harvester/scopus_metadata.db"],
+            "db": [str(resolve_path("scopus_metadata.db")), str(resolve_path("scopus_harvester/scopus_metadata.db"))],
             "table": "scopus_metadata",
-            "csv": ["scopus_outputs/scopus_clean_data.csv"],
-            "xlsx": ["scopus_resultados.xlsx", "scopus_outputs/Scopus_Data_Export.xlsx"],
+            "csv": [str(resolve_path("scopus_outputs/scopus_clean_data.csv"))],
+            "xlsx": [str(resolve_path("scopus_resultados.xlsx")), str(resolve_path("scopus_outputs/Scopus_Data_Export.xlsx"))],
             "mapping": {"id": "id"}
         },
         "BDTD": {
-            "db": ["bdtd_metadata.db", "bdtd_harvester/bdtd_metadata.db"],
+            "db": [str(resolve_path("bdtd_metadata.db")), str(resolve_path("bdtd_harvester/bdtd_metadata.db"))],
             "table": "bdtd_metadata",
-            "csv": ["bdtd_outputs/bdtd_clean_data.csv"],
-            "xlsx": ["bdtd_outputs/BDTD_Data_Export.xlsx"],
+            "csv": [str(resolve_path("bdtd_outputs/bdtd_clean_data.csv"))],
+            "xlsx": [str(resolve_path("bdtd_outputs/BDTD_Data_Export.xlsx"))],
             "mapping": {
                 "record_id": "id",
                 "creator": "authors",
@@ -138,10 +153,10 @@ def main():
             }
         },
         "PubMed": {
-            "db": ["pubmed_metadata.db", "pubmed_harvester/pubmed_metadata.db"],
+            "db": [str(resolve_path("pubmed_metadata.db")), str(resolve_path("pubmed_harvester/pubmed_metadata.db"))],
             "table": "pubmed_metadata",
-            "csv": ["pubmed_outputs/pubmed_clean_data.csv"],
-            "xlsx": ["pubmed_resultados.xlsx", "pubmed_outputs/PubMed_Data_Export.xlsx"],
+            "csv": [str(resolve_path("pubmed_outputs/pubmed_clean_data.csv"))],
+            "xlsx": [str(resolve_path("pubmed_resultados.xlsx")), str(resolve_path("pubmed_outputs/PubMed_Data_Export.xlsx"))],
             "mapping": {"id": "id"}
         }
     }
@@ -295,7 +310,8 @@ def main():
     df_removed = pd.DataFrame(removed_records)
 
     # Format outputs
-    os.makedirs("consolidado", exist_ok=True)
+    output_dir = str(resolve_path("consolidado"))
+    os.makedirs(output_dir, exist_ok=True)
     
     if not df_unique.empty:
         # Re-sort by title or year for presentation
@@ -317,17 +333,20 @@ def main():
         
         # Export to CSV
         df_export = df_export[["sources", "doi", "title", "authors", "year", "periodico", "abstract", "url"]]
-        df_export.to_csv("consolidado/registros_unificados.csv", index=False, encoding="utf-8")
-        logger.info(f"Saved {len(df_export)} unique consolidated records to 'consolidado/registros_unificados.csv'.")
+        output_csv = os.path.join(output_dir, "registros_unificados.csv")
+        df_export.to_csv(output_csv, index=False, encoding="utf-8")
+        logger.info(f"Saved {len(df_export)} unique consolidated records to '{output_csv}'.")
     else:
         logger.warning("No unique records found after consolidation.")
 
     if not df_removed.empty:
-        df_removed.to_csv("consolidado/duplicatas_removidas.csv", index=False, encoding="utf-8")
-        logger.info(f"Saved {len(df_removed)} removed duplicate records to 'consolidado/duplicatas_removidas.csv'.")
+        dup_csv = os.path.join(output_dir, "duplicatas_removidas.csv")
+        df_removed.to_csv(dup_csv, index=False, encoding="utf-8")
+        logger.info(f"Saved {len(df_removed)} removed duplicate records to '{dup_csv}'.")
     else:
         # Create empty file
-        pd.DataFrame(columns=["title", "doi", "source", "dup_reason"]).to_csv("consolidado/duplicatas_removidas.csv", index=False)
+        dup_csv = os.path.join(output_dir, "duplicatas_removidas.csv")
+        pd.DataFrame(columns=["title", "doi", "source", "dup_reason"]).to_csv(dup_csv, index=False)
 
     logger.info("Consolidation and deduplication complete.")
 

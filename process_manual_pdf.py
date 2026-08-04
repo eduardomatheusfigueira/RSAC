@@ -15,9 +15,22 @@ import shutil
 import pypdf
 import sys
 
-JSON_PATH = os.path.join("Revisão teste", "triagem2_sessao.json")
-OUTPUT_PDF_DIR = os.path.join("Revisão teste", "pdfs")
-DOWNLOADS_DIR = os.path.expanduser("~/Downloads")
+# Centralized path resolution
+try:
+    from config_app.utils.path_resolver import resolve_path
+    from config_app.utils.platform_compat import get_downloads_dir
+except ImportError:
+    from pathlib import Path as _Path
+    _BASE = _Path(__file__).resolve().parent
+    def resolve_path(p):
+        _p = _Path(p)
+        return _p if _p.is_absolute() else _BASE / _p
+    def get_downloads_dir():
+        return os.path.join(os.path.expanduser("~"), "Downloads")
+
+JSON_PATH = str(resolve_path(os.path.join("Revisão teste", "triagem2_sessao.json")))
+OUTPUT_PDF_DIR = str(resolve_path(os.path.join("Revisão teste", "pdfs")))
+DOWNLOADS_DIR = get_downloads_dir()
 
 def clean_filename(title):
     clean = "".join(c for c in title[:45] if c.isalnum() or c in (' ', '_', '-')).strip()

@@ -7,14 +7,19 @@ Author: Antigravity AI
 Description: A desktop application for configuring systematic reviews and generating JSON config files.
 """
 
-import ctypes
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(1)
-except Exception:
-    try:
-        ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
-        pass
+# Ensure parent directory (workspace root) is in sys.path so config_app can be imported
+# This MUST happen before any `from config_app.*` imports
+import os as _os
+import sys as _sys
+_workspace_root = _os.path.dirname(_os.path.abspath(__file__))
+if not getattr(_sys, 'frozen', False):
+    _workspace_root = _os.path.abspath(_os.path.join(_workspace_root, ".."))
+if _workspace_root not in _sys.path:
+    _sys.path.insert(0, _workspace_root)
+
+# Platform-specific DPI awareness (cross-platform safe)
+from config_app.utils.platform_compat import configure_dpi_awareness, open_file_with_default_app
+configure_dpi_awareness()
 
 import tkinter as tk
 from tkinter import ttk
@@ -38,12 +43,13 @@ import urllib.parse
 from datetime import datetime
 import logging
 
-# Ensure parent directory / workspace root is in sys.path so harvesters can be imported cleanly
-workspace_root = os.path.dirname(os.path.abspath(__file__))
-if not getattr(sys, 'frozen', False):
-    workspace_root = os.path.abspath(os.path.join(workspace_root, ".."))
-if workspace_root not in sys.path:
-    sys.path.insert(0, workspace_root)
+# Centralized path resolution and workspace setup
+from config_app.utils.path_resolver import (
+    BASE_DIR, resolve_path, resolve_db, resolve_config,
+    fix_win_long_path, ensure_workspace_in_sys_path,
+    DEFAULT_DB_NAMES, DEFAULT_EXPORT_NAMES,
+)
+ensure_workspace_in_sys_path()
 
 # Import harvesters natively so PyInstaller bundles them and execution works inside single process
 try:
@@ -72,15 +78,7 @@ except ImportError:
     scopus_run_harvest = None
 
 
-# Helper for Windows long path handling (bypasses 260-character MAX_PATH limit)
-def fix_win_long_path(path):
-    r"""Normalizes path and prepends \\?\ on Windows if path is absolute, enabling MAX_PATH bypass."""
-    if not path:
-        return path
-    abs_p = os.path.abspath(path)
-    if sys.platform == "win32" and not abs_p.startswith("\\\\?\\"):
-        return "\\\\?\\" + abs_p.replace("/", "\\")
-    return abs_p
+# fix_win_long_path is now imported from config_app.utils.path_resolver
 
 
 # Helper to sanitize text sent to APIs (removes null bytes & control chars)
@@ -3316,7 +3314,7 @@ class SystematicReviewApp(tk.Tk):
         
         if pdf_path and os.path.exists(pdf_path):
             try:
-                os.startfile(os.path.abspath(pdf_path))
+                open_file_with_default_app(pdf_path)
                 self.status_var.set(f"Abrindo PDF: {os.path.basename(pdf_path)}")
             except Exception as e:
                 messagebox.showerror("Erro", f"Não foi possível abrir o PDF:\n{str(e)}")
@@ -4373,8 +4371,12 @@ class SystematicReviewApp(tk.Tk):
                 res = self.call_gemini_api("Responda em formato JSON exclusivamente: {\"status\": \"ok\", \"mensagem\": \"Conexão bem sucedida\"}")
                 def ok():
                     self.save_gemini_config(show_msg=False)
-                    self.status_var.set("Conexão com Gemini estabelecida com sucesso!")
-                    messagebox.showinfo("Sucesso", f"Conexão com a API do Gemini ({self.gemini_model.get()}) realizada com sucesso!\n\nResposta: {res[:100]}")
+                    if res:
+                        self.status_var.set("Conexão com Gemini estabelecida com sucesso!")
+                        messagebox.showinfo("Sucesso", f"Conexão com a API do Gemini ({self.gemini_model.get()}) realizada com sucesso!\n\nResposta: {str(res)[:100]}")
+                    else:
+                        self.status_var.set("Falha na resposta do Gemini.")
+                        messagebox.showerror("Erro de Conexão", f"A API do Gemini ({self.gemini_model.get()}) não retornou uma resposta válida. Verifique se a chave de API é válida.")
                 self.after(0, ok)
             except Exception as e:
                 def err(msg=str(e)):
