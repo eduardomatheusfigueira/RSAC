@@ -1,22 +1,35 @@
 ---
 name: triagem-revisao-sistematica
 description: >-
-  Executa a triagem rápida de estudos em revisões sistemáticas (Triagem 1) usando o próprio modelo do Antigravity sem chamadas a APIs externas. Respeita a regra estrita de manter estudos com metadados/resumos incompletos como Pendentes.
+  Executa a triagem rápida e rigorosa de estudos em revisões sistemáticas (Triagem 1) usando o modelo do Antigravity com ancoragem estrita no texto. Respeita a regra de zero alucinação e mantém estudos com metadados incompletos como Pendentes.
 ---
 
-# Skill: Triagem Rápida de Revisão Sistemática (Sem API Externa)
+# Skill: Triagem Rápida e Rigorosa de Revisão Sistemática (Ancoragem Estrita no Texto)
 
 ## Visão Geral
-Esta skill orienta qualquer modelo atuando no Antigravity a realizar a **Triagem de Título e Resumo (Triagem 1)** em uma base de dados de revisão sistemática (JSON/CSV) com **alta velocidade, precisão e autonomia**, sem dependência de APIs externas de LLM.
+Esta skill orienta o modelo a realizar a **Triagem de Título e Resumo (Triagem 1)** com a **mesma precisão, clareza, especificidade e alinhamento estrito ao texto** da API do Gemini no aplicativo.
 
 ---
 
-## 🛑 REGRA DE OURO INEGOCIÁVEL: INTEGRIDADE DE DADOS
+## 🛑 DIRETRIZES INEGOCIÁVEIS DE QUALIDADE E EVIDÊNCIA (ZERO ALUCINAÇÃO)
 
-> [!CAUTION] **REGRA ABSOLUTA PARA ESTUDOS COM METADADOS INCOMPLETOS**
-> **NUNCA realize a triagem (não classifique como Incluído nem como Excluído) se qualquer elemento essencial (como o resumo ou título) estiver ausente, corrompido, incompleto ou deslocado** (ex: `"Não Informado"`, `"Pt"`, `"Apêndice"`, resumo em campo errado ou texto truncado).
-> 
-> **MESMO QUE O TÍTULO PAREÇA TOTALMENTE ESCLARECEDOR OU ÓBVIO**, se o resumo estiver faltando ou corrompido, **É ESTRITAMENTE PROIBIDO TRIAR**. O estudo **DEVE PERMANECER COMO `Pendente`** para busca manual de informações completas.
+1. **ANCORAGEM ESTRITA NO TEXTO DO RESUMO/TÍTULO**:
+   - Responda e classifique baseando-se **ESTRITAMENTE E APENAS** no texto fornecido do título e resumo.
+   - **É ESTRITAMENTE PROIBIDO** inferir, presumir, extrapolar ou inventar metodologias, contextos ou achados que não estejam explicitamente declarados no texto.
+
+2. **REGRA ABSOLUTA DE PENDÊNCIA (INTEGRIDADE DE METADADOS)**:
+   - Se o campo `Resumo` ou `Título` for nulo, vazio, `"Não Informado"`, `"Pt"`, `"Apêndice"`, ou texto truncado/corrompido, **NÃO TRIAR**. O estudo **DEVE OBRIGATORIAMENTE PERMANECER COMO `Pendente`**.
+   - MESMO QUE O TÍTULO PAREÇA ESCLARECEDOR, sem resumo válido a classificação DEVE SER `Pendente`.
+
+3. **JUSTIFICATIVAS ESPECÍFICAS E CITADAS (`observacoes`)**:
+   - A justificativa no campo `observacoes` DEVE SER **direta, específica e concisa**, citando trechos ou evidências exatas do texto.
+   - Evite afirmações genéricas como *"O estudo é relevante"* ou *"Trata de causalidade"*. Especifique exatamente o motivo:
+     - *Exemplo de Exclusão (CE2)*: `"Motivo de Exclusão (CE2): O estudo aborda mercado financeiro puro (Ibovespa) sem foco em políticas públicas."`
+     - *Exemplo de Inclusão*: `"Incluído: Aplica Regressão em Descontinuidade (RDD) para avaliar o efeito do Programa Bolsa Família nos municípios do Nordeste."`
+
+4. **COERÊNCIA ENTRE DECISÃO E CRITÉRIOS**:
+   - Se a decisão for **Excluído**, é **OBRIGATÓRIO** apontar ao menos 1 critério em `criterios_exclusao` como verdadeiro.
+   - Se a decisão for **Incluído**, o trabalho deve atender a TODOS os critérios de inclusão e a NENHUM critério de exclusão.
 
 ---
 
@@ -25,7 +38,7 @@ Esta skill orienta qualquer modelo atuando no Antigravity a realizar a **Triagem
 ```mermaid
 graph TD
     A[1. Mapeamento de Critérios e Bloqueio por Integridade] --> B[2. Pré-Filtragem Heurística via Python]
-    B --> C[3. Revisão Qualitativa de Falsos Positivos pelo Modelo]
+    B --> C[3. Análise Qualitativa Ancorada no Texto]
     C --> D[4. Consolidação, Relatório e Sincronização]
 ```
 
@@ -48,11 +61,11 @@ graph TD
 Para os estudos que **possuem título E resumo válidos e completos**, execute um script Python temporário em `scratch/`:
 
 - **Exclusão Rápida**: Estudos cujos resumos válidos não contêm termos causais ou metodológicos (ex: `"causal"`, `"causalidade"`, `"inferência causal"`, `"granger"`, `"propensity"`, `"diferenças em diferenças"`, `"controle sintético"`, `"qca"`, `"rdd"`) são marcados como `Excluído` (CE1/CE2).
-- **Potencialmente Incluídos**: Estudos com resumos completos que possuem os termos-chave são isolados num arquivo auxiliar (ex: `heuristic_review.json`) para análise qualitativa do modelo.
+- **Potencialmente Incluídos**: Estudos com resumos completos que possuem os termos-chave são isolados num arquivo auxiliar (ex: `heuristic_review.json`) para análise qualitativa ancorada no texto.
 
 ---
 
-### Passo 3: Revisão de Qualidade pelo Modelo Antigravity
+### Passo 3: Análise Qualitativa Ancorada pelo Modelo Antigravity
 
 O modelo inspeciona os resumos completos do lote isolado em partes (usando `view_file`) e elimina **Falsos Positivos**:
 
@@ -76,16 +89,7 @@ O modelo inspeciona os resumos completos do lote isolado em partes (usando `view
 1. **Gravar Atualizações**: Escrever as decisões no JSON mestre, garantindo que **todos os estudos com resumos/metadados incompletos continuem marcados como `Pendente`**.
 2. **Gerar Relatório Artifact**: Criar/atualizar `triagem_report.md` com:
    - Tabela consolidada (`Incluídos`, `Excluídos`, `Pendentes`, `Total`).
-   - Resumo metodológico e justificativas.
+   - Resumo metodológico e justificativas citadas.
    - Lista completa dos estudos `Pendentes` para busca manual de resumo pelo usuário.
-3. **Commit no Git**: Executar no terminal:
-   `git add -A; git commit -m "Triagem 1 concluída (regra estrita de pendentes)"; git push origin main`
-
----
-
-## Cuidados e Erros Comuns
-
-- ❌ **VIOLAÇÃO GRAVE DE REGRA:** Tentar triar ou deduzir a decisão de um estudo que não possui resumo completo, mesmo que o título seja totalmente evidente.
-- ❌ **Erro de Sintaxe:** Usar `&&` em comandos do PowerShell no Windows. Use sempre `;` para separar comandos.
-- ❌ **Erro de Avaliação:** Tratar menção incidental de palavra-chave como inclusão automática.
-- 🟢 **Boa Prática:** Manter todos os registros incompletos em um inventário de `Pendentes` no relatório final para a coleta manual posterior.
+3. **Commit no Git**: Executar no terminal se autorizado:
+   `git add -A; git commit -m "Triagem 1 concluída (ancoragem estrita em texto)"; git push origin main`
