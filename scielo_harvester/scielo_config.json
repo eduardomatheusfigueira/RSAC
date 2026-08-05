@@ -5,13 +5,11 @@
     "delay": 2.5,
     "search_field": "",
     "keywords": [
-        "\"Causalidade\" AND \"Políticas Públicas\"",
-        "\"Inferência Causal\" AND \"Políticas Públicas\"",
-        "\"Causalidade\" AND \"Desenvolvimento Regional\"",
-        "\"Inferência Causal\" AND \"Desenvolvimento Regional\"",
-        "\"Causalidade\" AND \"Planejamento Regional\"",
-        "\"Causalidade\" AND \"Planejamento Público\"",
-        "\"Inferência Causal\" AND \"Planejamento Regional\"",
-        "\"Inferência Causal\" AND \"Planejamento Público\""
+        "\"causalidade\" AND \"políticas públicas\"",
+        "\"causalidade\" AND \"desenvolvimento regional\"",
+        "\"inferência causal\" AND \"políticas públicas\"",
+        "\"inferência causal\" AND \"desenvolvimento regional\"",
+        "\"descoberta causal\" AND \"políticas públicas\"",
+        "\"descoberta causal\" AND \"desenvolvimento regional\""
     ]
 }

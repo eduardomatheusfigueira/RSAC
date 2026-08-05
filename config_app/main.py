@@ -220,7 +220,9 @@ class SystematicReviewApp(tk.Tk):
         self.protocol_db_vars = {}
 
         # Initialize Gemini AI Config
-        self.gemini_api_key = tk.StringVar(value="")
+        self.gemini_api_keys = []  # List of API keys for rotation
+        self.gemini_current_key_index = 0  # Current key index for rotation
+        self.gemini_exhausted_keys = set()  # Keys that hit quota limits this session
         self.gemini_model = tk.StringVar(value="gemini-2.5-flash")
         self.load_gemini_config()
 
@@ -249,24 +251,120 @@ class SystematicReviewApp(tk.Tk):
         """Creates the top header area of the application."""
         header_frame = ttk.Frame(self, padding=(20, 10, 20, 10))
         header_frame.grid(row=0, column=0, sticky="ew")
+        header_frame.columnconfigure(0, weight=1)
         
+        left_header = ttk.Frame(header_frame)
+        left_header.grid(row=0, column=0, sticky="w")
+
         title_label = ttk.Label(
-            header_frame, 
+            left_header, 
             text="Configurador de Revisão Sistemática", 
             style="Title.TLabel"
         )
         title_label.pack(anchor="w")
         
         subtitle_label = ttk.Label(
-            header_frame, 
-            text="Configure os parâmetros da revisão e gere o arquivo JSON para os Harvesters.", 
+            left_header, 
+            text="Plataforma Integrada para Protocolo, Busca, Triagem e Extração de Dados.", 
             style="Subtitle.TLabel"
         )
         subtitle_label.pack(anchor="w", pady=(2, 0))
+
+        # Gear Icon Button for Harvester Configurations (Top Right)
+        btn_config = ttk.Button(
+            header_frame,
+            text="⚙",
+            style="Secondary.TButton",
+            width=4,
+            command=self.open_harvester_config_window
+        )
+        btn_config.grid(row=0, column=1, sticky="e", padx=(10, 0))
         
         # Divider line
         divider = ttk.Separator(self, orient="horizontal")
         divider.grid(row=1, column=0, sticky="ew", padx=20)
+
+    def init_harvester_config_window(self):
+        """Initializes the harvester configuration window and tabs."""
+        if hasattr(self, 'harvester_win') and self.harvester_win is not None and self.harvester_win.winfo_exists():
+            return
+
+        self.harvester_win = tk.Toplevel(self)
+        self.harvester_win.title("⚙️ Configuração das Fontes de Busca (Harvesters)")
+        self.harvester_win.geometry("900x650")
+        self.harvester_win.configure(bg=self.bg_color)
+        self.harvester_win.protocol("WM_DELETE_WINDOW", self.harvester_win.withdraw)
+
+        # Header inside config window
+        top_frame = ttk.Frame(self.harvester_win, padding=15)
+        top_frame.pack(fill="x")
+
+        title_lbl = ttk.Label(top_frame, text="⚙️ Configuração das Fontes de Busca (Harvesters)", style="Title.TLabel")
+        title_lbl.pack(anchor="w")
+
+        sub_lbl = ttk.Label(top_frame, text="Ajuste os parâmetros de busca, limites, diretórios de banco de dados e chaves de API das fontes.", style="Subtitle.TLabel")
+        sub_lbl.pack(anchor="w", pady=(2, 0))
+
+        ttk.Separator(self.harvester_win, orient="horizontal").pack(fill="x", padx=15)
+
+        # Notebook inside config window
+        config_notebook = ttk.Notebook(self.harvester_win, padding=10)
+        config_notebook.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Harvester Config Tabs (child of config_notebook)
+        self.tab_bdtd = ttk.Frame(config_notebook, padding=15)
+        config_notebook.add(self.tab_bdtd, text="BDTD Harvester")
+        self.setup_tab_bdtd()
+
+        self.tab_scielo = ttk.Frame(config_notebook, padding=15)
+        config_notebook.add(self.tab_scielo, text="SciELO Harvester")
+        self.setup_tab_scielo()
+
+        self.tab_openalex = ttk.Frame(config_notebook, padding=15)
+        config_notebook.add(self.tab_openalex, text="OpenAlex Harvester")
+        self.setup_tab_openalex()
+
+        self.tab_pubmed = ttk.Frame(config_notebook, padding=15)
+        config_notebook.add(self.tab_pubmed, text="PubMed Harvester")
+        self.setup_tab_pubmed()
+
+        self.tab_scopus = ttk.Frame(config_notebook, padding=15)
+        config_notebook.add(self.tab_scopus, text="Scopus Harvester")
+        self.setup_tab_scopus()
+
+        # Bottom action bar with Close button
+        bottom_bar = ttk.Frame(self.harvester_win, padding=10)
+        bottom_bar.pack(fill="x", side="bottom")
+
+        btn_close = ttk.Button(bottom_bar, text="Concluído / Fechar", style="Primary.TButton", command=self.harvester_win.withdraw)
+        btn_close.pack(side="right", padx=5)
+
+        # Keep hidden initially
+        self.harvester_win.withdraw()
+
+    def open_harvester_config_window(self):
+        """Shows the harvester configuration window."""
+        if not hasattr(self, 'harvester_win') or self.harvester_win is None or not self.harvester_win.winfo_exists():
+            self.init_harvester_config_window()
+
+        self.harvester_win.deiconify()
+        self.harvester_win.lift()
+        self.harvester_win.focus_force()
+
+        # Center window relative to parent
+        try:
+            self.harvester_win.update_idletasks()
+            pw = self.winfo_width()
+            ph = self.winfo_height()
+            px = self.winfo_rootx()
+            py = self.winfo_rooty()
+            w = 900
+            h = 650
+            x = px + max(0, (pw - w) // 2)
+            y = py + max(0, (ph - h) // 2)
+            self.harvester_win.geometry(f"{w}x{h}+{x}+{y}")
+        except Exception:
+            pass
 
     def _make_scrollable_tab(self, tab_frame):
         """Wraps a tab's content in a scrollable canvas. Returns the inner frame to add widgets to."""
@@ -301,54 +399,35 @@ class SystematicReviewApp(tk.Tk):
         return inner_frame
 
     def create_notebook(self):
-        """Creates the tabbed area (Notebook) for configurations."""
+        """Creates the main production tabbed area (Notebook) and initializes Harvester Config Window."""
         self.notebook = ttk.Notebook(self, padding=10)
         self.notebook.grid(row=2, column=0, sticky="nsew", padx=5, pady=0)
         
-        # Tab 0: Protocolo de Pesquisa
+        # Production Tab 1: Protocolo de Pesquisa
         self.tab_protocol = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(self.tab_protocol, text="Protocolo de Pesquisa")
         self.setup_tab_protocol()
         
-        # Tab 1: Configuração Geral
+        # Production Tab 2: Configuração Geral
         self.tab_general = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(self.tab_general, text="Configuração Geral")
         self.setup_tab_general()
         
-        # Tab 2: BDTD Harvester
-        self.tab_bdtd = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(self.tab_bdtd, text="BDTD Harvester")
-        self.setup_tab_bdtd()
-        
-        # Tab 3: SciELO Harvester
-        self.tab_scielo = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(self.tab_scielo, text="SciELO Harvester")
-        self.setup_tab_scielo()
-        
-        # Tab: OpenAlex Harvester
-        self.tab_openalex = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(self.tab_openalex, text="OpenAlex Harvester")
-        self.setup_tab_openalex()
-        
-        # Tab: PubMed Harvester
-        self.tab_pubmed = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(self.tab_pubmed, text="PubMed Harvester")
-        self.setup_tab_pubmed()
-        
-        # Tab: Scopus Harvester
-        self.tab_scopus = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(self.tab_scopus, text="Scopus Harvester")
-        self.setup_tab_scopus()
-        
-        # Tab 4: Triagem de Trabalhos
+        # Production Tab 3: Triagem de Trabalhos
         self.tab_triagem = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(self.tab_triagem, text="Triagem de Trabalhos")
         self.setup_tab_triagem()
         
-        # Tab 5: Triagem Fase 2 - Extração de Dados
+        # Production Tab 4: Triagem Fase 2 - Extração de Dados
         self.tab_triagem_2 = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(self.tab_triagem_2, text="Triagem 2 - Extração")
         self.setup_tab_triagem_2()
+        
+        # Bind tab change event for auto scanning
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+
+        # Initialize Harvester Config Toplevel Window
+        self.init_harvester_config_window()
         
         # Bind tab change event for auto scanning
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
@@ -1044,7 +1123,12 @@ class SystematicReviewApp(tk.Tk):
     def _save_unified_json_quietly(self):
         """Saves the unified JSON file, reusing the last opened path if available, without dialog prompts."""
         if not self.unified_file_path:
-            return
+            # Auto-generate a path if none was set yet
+            out_dir = self.ent_output_dir.get().strip() if hasattr(self, 'ent_output_dir') else ""
+            if out_dir and os.path.exists(out_dir):
+                self.unified_file_path = os.path.join(out_dir, "revisao_sistematica.json").replace("\\", "/")
+            else:
+                return
         try:
             unified = self.build_unified_data()
             if os.path.exists(self.unified_file_path):
@@ -1056,7 +1140,8 @@ class SystematicReviewApp(tk.Tk):
                 except Exception:
                     pass
 
-            with open(self.unified_file_path, 'w', encoding='utf-8') as f:
+            win_path = fix_win_long_path(self.unified_file_path)
+            with open(win_path, 'w', encoding='utf-8') as f:
                 json.dump(unified, f, ensure_ascii=False, indent=4)
             self.status_var.set(f"Sessão auto-salva em: {os.path.basename(self.unified_file_path)}")
         except Exception as e:
@@ -1134,6 +1219,13 @@ class SystematicReviewApp(tk.Tk):
             elif 'trabalhos' in data or 'arquivos_origem' in data:
                 # Legacy triagem/extraction file
                 self._populate_triagem_from_dict(data)
+                return True
+            elif 'metadata' in data and 'session' in data:
+                # Legacy V2 format (broken duplicate save): extract session data
+                self.unified_file_path = file_path
+                session = data.get('session', {})
+                if session.get('trabalhos') or session.get('arquivos_origem'):
+                    self._populate_triagem_from_dict(session)
                 return True
             else:
                 messagebox.showerror("Erro", "Formato de arquivo JSON não reconhecido.")
@@ -1350,9 +1442,8 @@ class SystematicReviewApp(tk.Tk):
 
     def run_ai_protocol_partner(self):
         """Uses Gemini AI to generate protocol suggestions based on user prompt and selected protocol model."""
-        api_key = self.gemini_api_key.get().strip()
-        if not api_key:
-            messagebox.showwarning("Chave de API ausente", "Chave de API do Gemini não configurada.\nPor favor, insira e salve sua API Key na aba 'Configuração Geral'.")
+        if not self._has_gemini_keys():
+            messagebox.showwarning("Chave de API ausente", "Nenhuma chave de API do Gemini configurada.\nPor favor, adicione pelo menos uma API Key na aba 'Configuração Geral'.")
             return
 
         user_prompt = self.txt_ai_research_prompt.get("1.0", tk.END).strip()
@@ -1810,19 +1901,37 @@ class SystematicReviewApp(tk.Tk):
         gemini_frame.pack(fill="x", pady=(15, 0))
         gemini_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(gemini_frame, text="Chave de API do Gemini (API Key):", style="Bold.TLabel").grid(row=0, column=0, sticky="w", pady=5)
-        self.ent_gemini_key = ttk.Entry(gemini_frame, textvariable=self.gemini_api_key, show="*", width=40)
-        self.ent_gemini_key.grid(row=0, column=1, sticky="ew", padx=10, pady=5)
+        # --- Multi API Key Management ---
+        ttk.Label(gemini_frame, text="Chaves de API do Gemini:", style="Bold.TLabel").grid(row=0, column=0, sticky="nw", pady=5)
 
-        def toggle_key_visibility():
-            if self.ent_gemini_key.cget("show") == "*":
-                self.ent_gemini_key.configure(show="")
-            else:
-                self.ent_gemini_key.configure(show="*")
+        keys_container = ttk.Frame(gemini_frame)
+        keys_container.grid(row=0, column=1, columnspan=2, sticky="ew", padx=10, pady=5)
+        keys_container.columnconfigure(0, weight=1)
 
-        chk_show_key = ttk.Checkbutton(gemini_frame, text="Mostrar chave", command=toggle_key_visibility)
-        chk_show_key.grid(row=0, column=2, sticky="w", padx=5, pady=5)
+        self.lst_gemini_keys = tk.Listbox(keys_container, height=4, font=("Segoe UI", 9), selectmode=tk.SINGLE)
+        self.lst_gemini_keys.grid(row=0, column=0, sticky="ew", pady=(0, 5))
+        self._refresh_gemini_keys_listbox()
 
+        self.lbl_gemini_key_status = ttk.Label(keys_container, text="", foreground="#555555", font=("Segoe UI", 8))
+        self.lbl_gemini_key_status.grid(row=1, column=0, sticky="w")
+        self._update_gemini_key_status_label()
+
+        # Add key row
+        add_key_frame = ttk.Frame(keys_container)
+        add_key_frame.grid(row=2, column=0, sticky="ew", pady=(5, 0))
+        add_key_frame.columnconfigure(0, weight=1)
+
+        self.ent_new_gemini_key = ttk.Entry(add_key_frame, show="*", width=40)
+        self.ent_new_gemini_key.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self.ent_new_gemini_key.bind("<Return>", lambda e: self._add_gemini_key())
+
+        btn_keys_frame = ttk.Frame(add_key_frame)
+        btn_keys_frame.grid(row=0, column=1, sticky="e")
+
+        ttk.Button(btn_keys_frame, text="+ Adicionar", style="Secondary.TButton", command=self._add_gemini_key).pack(side="left", padx=2)
+        ttk.Button(btn_keys_frame, text="- Remover", style="Secondary.TButton", command=self._remove_gemini_key).pack(side="left", padx=2)
+
+        # --- Model selector ---
         ttk.Label(gemini_frame, text="Modelo do Gemini:", style="Bold.TLabel").grid(row=1, column=0, sticky="w", pady=5)
         cb_gemini_model = ttk.Combobox(
             gemini_frame,
@@ -1833,6 +1942,7 @@ class SystematicReviewApp(tk.Tk):
         )
         cb_gemini_model.grid(row=1, column=1, sticky="w", padx=10, pady=5)
 
+        # --- Action buttons ---
         btn_gemini_actions = ttk.Frame(gemini_frame)
         btn_gemini_actions.grid(row=2, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
@@ -4039,10 +4149,11 @@ class SystematicReviewApp(tk.Tk):
             self.tree_triagem.delete(item)
             
         for t in self.current_session.get('trabalhos', []):
+            t_id = str(t['id'])
             self.tree_triagem.insert(
                 "", 
                 tk.END, 
-                iid=t['id'],
+                iid=t_id,
                 values=(t['id'], t['Título'], t['Autores'], t['Ano'], t['Fonte'], t['Decisao']),
                 tags=(t['Decisao'],)
             )
@@ -4057,10 +4168,10 @@ class SystematicReviewApp(tk.Tk):
         if not getattr(self, 'batch_t1_running', False):
             self.save_current_paper_decisions()
         
-        paper_id = selected_items[0]
+        paper_id = str(selected_items[0])
         # Find paper index in session
         for idx, t in enumerate(self.current_session.get('trabalhos', [])):
-            if t['id'] == paper_id:
+            if str(t['id']) == paper_id:
                 self.selected_paper_index = idx
                 self.update_dynamic_form(t)
                 break
@@ -4217,10 +4328,16 @@ class SystematicReviewApp(tk.Tk):
 
     def save_current_paper_decisions(self):
         """Saves current dynamic form selection values into the active paper state."""
+        if getattr(self, 'batch_t1_running', False):
+            return
         if self.selected_paper_index is None:
+            return
+        if self.selected_paper_index >= len(self.current_session.get('trabalhos', [])):
             return
 
         paper = self.current_session['trabalhos'][self.selected_paper_index]
+        if not hasattr(self, 'dynamic_vars') or 'criterios' not in self.dynamic_vars:
+            return
 
         # Save criteria
         for c, var in self.dynamic_vars['criterios'].items():
@@ -4235,14 +4352,18 @@ class SystematicReviewApp(tk.Tk):
             paper['Observacoes'] = self.txt_observacoes.get("1.0", tk.END).strip()
 
         # Save edited abstract
-        paper['Resumo'] = self.txt_paper_abstract.get("1.0", tk.END).strip()
+        if hasattr(self, 'txt_paper_abstract') and self.txt_paper_abstract.winfo_exists():
+            paper['Resumo'] = self.txt_paper_abstract.get("1.0", tk.END).strip()
             
         # Save decision
-        new_dec = self.dynamic_vars['decisao'].get()
-        if paper['Decisao'] != new_dec:
-            paper['Decisao'] = new_dec
-            # Update row in treeview
-            self.tree_triagem.item(paper['id'], values=(paper['id'], paper['Título'], paper['Autores'], paper['Ano'], paper['Fonte'], paper['Decisao']), tags=(new_dec,))
+        if 'decisao' in self.dynamic_vars:
+            new_dec = self.dynamic_vars['decisao'].get()
+            if paper.get('Decisao') != new_dec:
+                paper['Decisao'] = new_dec
+                try:
+                    self.tree_triagem.item(str(paper['id']), values=(paper['id'], paper['Título'], paper['Autores'], paper['Ano'], paper['Fonte'], paper['Decisao']), tags=(new_dec,))
+                except Exception:
+                    pass
 
     def confirm_and_next_paper(self):
         """Saves decisions for current paper and moves selection to next paper."""
@@ -4267,47 +4388,6 @@ class SystematicReviewApp(tk.Tk):
         except ValueError:
             pass
 
-    def _save_unified_json_quietly(self):
-        """Saves current session state to unified JSON file quietly without showing popups."""
-        if not self.current_session.get('trabalhos'):
-            return
-        if not self.unified_file_path:
-            out_dir = self.ent_output_dir.get().strip() if hasattr(self, 'ent_output_dir') else ""
-            if out_dir and os.path.exists(out_dir):
-                self.unified_file_path = os.path.join(out_dir, "projeto_revisao_unificado.json").replace("\\", "/")
-            else:
-                base_dir = os.path.dirname(os.path.abspath(__file__))
-                self.unified_file_path = os.path.join(base_dir, "projeto_revisao_unificado.json").replace("\\", "/")
-
-        try:
-            payload = {
-                "metadata": {
-                    "project_name": self.ent_project_name.get().strip() if hasattr(self, 'ent_project_name') else "",
-                    "saved_at": pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
-                },
-                "session": self.current_session
-            }
-            win_path = fix_win_long_path(self.unified_file_path)
-            with open(win_path, 'w', encoding='utf-8') as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logging.warning(f"Erro ao auto-salvar projeto unificado: {e}")
-
-    def _save_unified_json(self):
-        """Saves current session state to unified JSON file and prompts user if no path is set."""
-        if not self.unified_file_path:
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".json",
-                filetypes=[("JSON files", "*.json")],
-                initialfile="projeto_revisao_unificado.json"
-            )
-            if not file_path:
-                return
-            self.unified_file_path = file_path.replace("\\", "/")
-
-        self._save_unified_json_quietly()
-        if self.unified_file_path:
-            messagebox.showinfo("Sucesso", f"Sessão do projeto salva com sucesso em:\n{self.unified_file_path}")
 
     def save_triagem_session(self):
         """Saves the entire project (unified JSON) from the Triagem/Extração tabs."""
@@ -4337,8 +4417,12 @@ class SystematicReviewApp(tk.Tk):
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    if "api_key" in data:
-                        self.gemini_api_key.set(data["api_key"])
+                    # Support new multi-key format
+                    if "api_keys" in data and isinstance(data["api_keys"], list):
+                        self.gemini_api_keys = [k for k in data["api_keys"] if k and k.strip()]
+                    elif "api_key" in data and data["api_key"]:
+                        # Backward compatibility: migrate single key to list
+                        self.gemini_api_keys = [data["api_key"].strip()]
                     if "model" in data and data["model"]:
                         self.gemini_model.set(data["model"])
             except Exception as e:
@@ -4347,22 +4431,137 @@ class SystematicReviewApp(tk.Tk):
     def save_gemini_config(self, show_msg=True):
         path = self.get_gemini_config_path()
         data = {
-            "api_key": self.gemini_api_key.get().strip(),
+            "api_keys": self.gemini_api_keys.copy(),
             "model": self.gemini_model.get().strip() or "gemini-3.5-flash"
         }
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             if show_msg:
-                messagebox.showinfo("Sucesso", "Configurações do Gemini AI salvas com sucesso!")
+                messagebox.showinfo("Sucesso", f"Configurações do Gemini AI salvas com sucesso!\n{len(self.gemini_api_keys)} chave(s) de API configurada(s).")
         except Exception as e:
             if show_msg:
                 messagebox.showerror("Erro", f"Erro ao salvar configurações do Gemini: {e}")
 
+    # --- Multi API Key helpers ---
+
+    def _has_gemini_keys(self):
+        """Returns True if at least one API key is configured."""
+        return bool(self.gemini_api_keys)
+
+    def _mask_api_key(self, key):
+        """Returns a masked version of the key for display (e.g., 'AIza...vm7M')."""
+        if not key or len(key) < 8:
+            return key or ""
+        return f"{key[:4]}...{key[-4:]}"
+
+    def _get_next_api_key(self):
+        """Returns the next available API key, skipping exhausted ones.
+        Raises ValueError if no keys are available."""
+        if not self.gemini_api_keys:
+            raise ValueError("Nenhuma chave de API do Gemini configurada. Adicione pelo menos uma na aba 'Configuração Geral'.")
+
+        n = len(self.gemini_api_keys)
+        # Try each key once, starting from current index
+        for attempt in range(n):
+            idx = (self.gemini_current_key_index + attempt) % n
+            key = self.gemini_api_keys[idx]
+            if key not in self.gemini_exhausted_keys:
+                self.gemini_current_key_index = idx
+                return key
+
+        # All keys exhausted — reset and use the first one (might work after cooldown)
+        logging.warning("Todas as chaves de API foram marcadas como exauridas. Resetando marcações.")
+        self.gemini_exhausted_keys.clear()
+        self.gemini_current_key_index = 0
+        return self.gemini_api_keys[0]
+
+    def _rotate_to_next_key(self, exhausted_key):
+        """Marks a key as exhausted and rotates to the next one.
+        Returns True if there are still available keys, False if all exhausted."""
+        self.gemini_exhausted_keys.add(exhausted_key)
+        masked = self._mask_api_key(exhausted_key)
+        n = len(self.gemini_api_keys)
+        available = [k for k in self.gemini_api_keys if k not in self.gemini_exhausted_keys]
+
+        if available:
+            # Advance index to the next non-exhausted key
+            for attempt in range(n):
+                idx = (self.gemini_current_key_index + 1 + attempt) % n
+                if self.gemini_api_keys[idx] not in self.gemini_exhausted_keys:
+                    self.gemini_current_key_index = idx
+                    next_masked = self._mask_api_key(self.gemini_api_keys[idx])
+                    logging.info(f"Chave {masked} exaurida. Rotacionando para chave {next_masked} ({idx + 1}/{n}).")
+                    try:
+                        self.after(0, lambda: (self._update_gemini_key_status_label(), self._refresh_gemini_keys_listbox()))
+                    except Exception:
+                        pass
+                    return True
+        logging.warning(f"Chave {masked} exaurida e nenhuma outra chave disponível ({len(self.gemini_exhausted_keys)}/{n} exauridas).")
+        return False
+
+    def _refresh_gemini_keys_listbox(self):
+        """Refreshes the Gemini keys listbox display."""
+        if not hasattr(self, 'lst_gemini_keys'):
+            return
+        self.lst_gemini_keys.delete(0, tk.END)
+        for i, key in enumerate(self.gemini_api_keys):
+            prefix = "▶ " if i == self.gemini_current_key_index else "   "
+            exhausted = " [EXAURIDA]" if key in self.gemini_exhausted_keys else ""
+            self.lst_gemini_keys.insert(tk.END, f"{prefix}{i + 1}. {self._mask_api_key(key)}{exhausted}")
+
+    def _update_gemini_key_status_label(self):
+        """Updates the status label showing active key info."""
+        if not hasattr(self, 'lbl_gemini_key_status'):
+            return
+        n = len(self.gemini_api_keys)
+        if n == 0:
+            self.lbl_gemini_key_status.configure(text="Nenhuma chave configurada", foreground="#cc0000")
+        else:
+            exhausted = len(self.gemini_exhausted_keys)
+            active_idx = self.gemini_current_key_index % n if n > 0 else 0
+            text = f"Chave ativa: {active_idx + 1}/{n}"
+            if exhausted > 0:
+                text += f"  •  {exhausted} exaurida(s)"
+            self.lbl_gemini_key_status.configure(text=text, foreground="#1f497d")
+
+    def _add_gemini_key(self):
+        """Adds a new API key from the entry field."""
+        key = self.ent_new_gemini_key.get().strip()
+        if not key:
+            messagebox.showwarning("Aviso", "Digite uma chave de API antes de adicionar.")
+            return
+        if key in self.gemini_api_keys:
+            messagebox.showwarning("Duplicada", f"Esta chave já está na lista: {self._mask_api_key(key)}")
+            return
+        self.gemini_api_keys.append(key)
+        self.ent_new_gemini_key.delete(0, tk.END)
+        self._refresh_gemini_keys_listbox()
+        self._update_gemini_key_status_label()
+        self.save_gemini_config(show_msg=False)
+        self.status_var.set(f"Chave de API adicionada ({self._mask_api_key(key)}). Total: {len(self.gemini_api_keys)}")
+
+    def _remove_gemini_key(self):
+        """Removes the selected API key from the list."""
+        sel = self.lst_gemini_keys.curselection()
+        if not sel:
+            messagebox.showwarning("Aviso", "Selecione uma chave na lista para remover.")
+            return
+        idx = sel[0]
+        if idx < len(self.gemini_api_keys):
+            removed = self.gemini_api_keys.pop(idx)
+            self.gemini_exhausted_keys.discard(removed)
+            # Adjust current index if needed
+            if self.gemini_current_key_index >= len(self.gemini_api_keys):
+                self.gemini_current_key_index = 0
+            self._refresh_gemini_keys_listbox()
+            self._update_gemini_key_status_label()
+            self.save_gemini_config(show_msg=False)
+            self.status_var.set(f"Chave de API removida ({self._mask_api_key(removed)}). Total: {len(self.gemini_api_keys)}")
+
     def test_gemini_connection(self):
-        api_key = self.gemini_api_key.get().strip()
-        if not api_key:
-            messagebox.showwarning("Aviso", "Por favor, insira a Chave de API do Gemini antes de testar.")
+        if not self._has_gemini_keys():
+            messagebox.showwarning("Aviso", "Adicione pelo menos uma chave de API do Gemini antes de testar.")
             return
 
         self.status_var.set("Testando conexão com a API do Gemini...")
@@ -4372,8 +4571,9 @@ class SystematicReviewApp(tk.Tk):
                 def ok():
                     self.save_gemini_config(show_msg=False)
                     if res:
+                        active_key = self._mask_api_key(self.gemini_api_keys[self.gemini_current_key_index % len(self.gemini_api_keys)])
                         self.status_var.set("Conexão com Gemini estabelecida com sucesso!")
-                        messagebox.showinfo("Sucesso", f"Conexão com a API do Gemini ({self.gemini_model.get()}) realizada com sucesso!\n\nResposta: {str(res)[:100]}")
+                        messagebox.showinfo("Sucesso", f"Conexão com a API do Gemini ({self.gemini_model.get()}) realizada com sucesso!\nChave usada: {active_key}\n\nResposta: {str(res)[:100]}")
                     else:
                         self.status_var.set("Falha na resposta do Gemini.")
                         messagebox.showerror("Erro de Conexão", f"A API do Gemini ({self.gemini_model.get()}) não retornou uma resposta válida. Verifique se a chave de API é válida.")
@@ -4387,11 +4587,11 @@ class SystematicReviewApp(tk.Tk):
         threading.Thread(target=worker, daemon=True).start()
 
     def call_gemini_api(self, prompt_text, system_instruction=None):
-        api_key = self.gemini_api_key.get().strip()
-        user_model = self.gemini_model.get().strip() or "gemini-2.5-flash"
+        """Calls Gemini API with automatic key rotation on quota exhaustion."""
+        if not self._has_gemini_keys():
+            raise ValueError("Nenhuma chave de API do Gemini configurada. Adicione pelo menos uma na aba 'Configuração Geral'.")
 
-        if not api_key:
-            raise ValueError("Chave de API do Gemini não configurada. Configure em 'Configuração Geral'.")
+        user_model = self.gemini_model.get().strip() or "gemini-2.5-flash"
 
         prompt_text = sanitize_text(prompt_text)
         if system_instruction:
@@ -4403,68 +4603,97 @@ class SystematicReviewApp(tk.Tk):
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
 
+        # Outer loop: rotate through API keys on quota exhaustion
+        keys_tried = 0
+        max_key_attempts = len(self.gemini_api_keys)
         last_error = None
-        for model in candidate_models:
-            # 1. Direct REST API call (uses API Key directly, avoiding GCP project SDK scope issues)
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-                payload = {
-                    "contents": [
-                        {
-                            "parts": [{"text": prompt_text}]
+
+        while keys_tried < max_key_attempts:
+            api_key = self._get_next_api_key()
+            keys_tried += 1
+            key_succeeded = False
+
+            for model in candidate_models:
+                # 1. Direct REST API call
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                    payload = {
+                        "contents": [
+                            {
+                                "parts": [{"text": prompt_text}]
+                            }
+                        ],
+                        "generationConfig": {
+                            "responseMimeType": "application/json"
                         }
-                    ],
-                    "generationConfig": {
-                        "responseMimeType": "application/json"
                     }
-                }
-                if system_instruction:
-                    payload["systemInstruction"] = {
-                        "parts": [{"text": system_instruction}]
-                    }
+                    if system_instruction:
+                        payload["systemInstruction"] = {
+                            "parts": [{"text": system_instruction}]
+                        }
 
-                headers = {"Content-Type": "application/json"}
-                resp = requests.post(url, json=payload, headers=headers, timeout=60)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    try:
-                        text = data['candidates'][0]['content']['parts'][0]['text']
-                        if text:
-                            return text
-                    except (KeyError, IndexError):
-                        pass
-                elif resp.status_code == 429 or "RESOURCE_EXHAUSTED" in resp.text:
-                    raise RuntimeError("Limite de Cota Excedido (Erro 429 - Resource Exhausted).\n\nSua Chave de API atingiu o limite de requisições por minuto do plano gratuito do Gemini.\nAguarde cerca de 1 minuto ou selecione outro modelo na aba 'Configuração Geral'.")
-                elif resp.status_code == 503 or "UNAVAILABLE" in resp.text:
-                    raise RuntimeError("Modelo Temporariamente Indisponível (Erro 503 - High Demand).\n\nO modelo do Gemini está enfrentando alta demanda temporária nos servidores do Google.\nAguarde alguns segundos e tente novamente.")
-                else:
-                    last_error = f"Erro na API Gemini ({resp.status_code}): {resp.text}"
-            except RuntimeError:
-                raise
-            except Exception as ex:
-                last_error = str(ex)
+                    headers = {"Content-Type": "application/json"}
+                    resp = requests.post(url, json=payload, headers=headers, timeout=60)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        try:
+                            text = data['candidates'][0]['content']['parts'][0]['text']
+                            if text:
+                                return text
+                        except (KeyError, IndexError):
+                            pass
+                    elif resp.status_code == 429 or "RESOURCE_EXHAUSTED" in resp.text:
+                        # Quota exhausted — rotate to next key
+                        has_more = self._rotate_to_next_key(api_key)
+                        if has_more:
+                            logging.info(f"Chave {self._mask_api_key(api_key)} exaurida (429). Tentando próxima chave...")
+                            break  # Break model loop to retry with next key
+                        else:
+                            raise RuntimeError(
+                                f"Todas as {len(self.gemini_api_keys)} chaves de API atingiram o limite de cota (429 - Resource Exhausted).\n\n"
+                                f"Aguarde alguns minutos para os limites resetarem ou adicione novas chaves na aba 'Configuração Geral'."
+                            )
+                    elif resp.status_code == 503 or "UNAVAILABLE" in resp.text:
+                        raise RuntimeError("Modelo Temporariamente Indisponível (Erro 503 - High Demand).\n\nO modelo do Gemini está enfrentando alta demanda temporária nos servidores do Google.\nAguarde alguns segundos e tente novamente.")
+                    else:
+                        last_error = f"Erro na API Gemini ({resp.status_code}): {resp.text}"
+                except RuntimeError:
+                    raise
+                except Exception as ex:
+                    last_error = str(ex)
 
-            # 2. Try SDK as secondary fallback
-            try:
-                from google import genai
-                client = genai.Client(api_key=api_key)
-                config = {"response_mime_type": "application/json"}
-                if system_instruction:
-                    config["system_instruction"] = system_instruction
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt_text,
-                    config=config
-                )
-                if hasattr(response, 'text') and response.text:
-                    return response.text
-            except Exception as sdk_err:
-                err_str = str(sdk_err)
-                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                    raise RuntimeError("Limite de Cota Excedido (Erro 429 - Resource Exhausted).\n\nSua Chave de API atingiu o limite de requisições por minuto do plano gratuito do Gemini.\nAguarde cerca de 1 minuto ou selecione outro modelo na aba 'Configuração Geral'.")
-                if "503" in err_str or "UNAVAILABLE" in err_str:
-                    raise RuntimeError("Modelo Temporariamente Indisponível (Erro 503 - High Demand).\n\nO modelo do Gemini está enfrentando alta demanda temporária nos servidores do Google.\nAguarde alguns segundos e tente novamente.")
-                logging.warning(f"google-genai SDK call failed for model '{model}': {sdk_err}")
+                # 2. Try SDK as secondary fallback
+                try:
+                    from google import genai
+                    client = genai.Client(api_key=api_key)
+                    config = {"response_mime_type": "application/json"}
+                    if system_instruction:
+                        config["system_instruction"] = system_instruction
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=prompt_text,
+                        config=config
+                    )
+                    if hasattr(response, 'text') and response.text:
+                        return response.text
+                except Exception as sdk_err:
+                    err_str = str(sdk_err)
+                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                        has_more = self._rotate_to_next_key(api_key)
+                        if has_more:
+                            logging.info(f"Chave {self._mask_api_key(api_key)} exaurida via SDK (429). Tentando próxima chave...")
+                            break  # Break model loop to retry with next key
+                        else:
+                            raise RuntimeError(
+                                f"Todas as {len(self.gemini_api_keys)} chaves de API atingiram o limite de cota (429 - Resource Exhausted).\n\n"
+                                f"Aguarde alguns minutos para os limites resetarem ou adicione novas chaves na aba 'Configuração Geral'."
+                            )
+                    if "503" in err_str or "UNAVAILABLE" in err_str:
+                        raise RuntimeError("Modelo Temporariamente Indisponível (Erro 503 - High Demand).\n\nO modelo do Gemini está enfrentando alta demanda temporária nos servidores do Google.\nAguarde alguns segundos e tente novamente.")
+                    logging.warning(f"google-genai SDK call failed for model '{model}': {sdk_err}")
+
+        if last_error:
+            raise RuntimeError(f"Falha em todas as tentativas da API Gemini: {last_error}")
 
     def stop_batch_gemini_triagem(self):
         """Requests cancellation of the ongoing batch AI screening loop."""
@@ -4482,9 +4711,8 @@ class SystematicReviewApp(tk.Tk):
             messagebox.showinfo("Em Execução", "A triagem em lote já está em andamento.")
             return
 
-        api_key = self.gemini_api_key.get().strip()
-        if not api_key:
-            messagebox.showwarning("API Key Ausente", "Configure sua Chave de API do Gemini na aba 'Configuração Geral'.")
+        if not self._has_gemini_keys():
+            messagebox.showwarning("API Key Ausente", "Nenhuma chave de API configurada. Adicione pelo menos uma na aba 'Configuração Geral'.")
             self.notebook.select(self.tab_general)
             return
 
@@ -4573,6 +4801,37 @@ class SystematicReviewApp(tk.Tk):
                             return v
                 return None
 
+            def parse_json_from_response(raw_text):
+                if not raw_text or not isinstance(raw_text, str):
+                    return None
+                text_clean = raw_text.strip()
+                try:
+                    return json.loads(text_clean, strict=False)
+                except Exception:
+                    pass
+                if "```" in text_clean:
+                    lines = []
+                    in_block = False
+                    for line in text_clean.splitlines():
+                        ls = line.strip()
+                        if ls.startswith("```"):
+                            in_block = not in_block
+                            continue
+                        if in_block:
+                            lines.append(line)
+                    if lines:
+                        try:
+                            return json.loads("\n".join(lines).strip(), strict=False)
+                        except Exception:
+                            pass
+                m = re.search(r'\{.*\}', text_clean, re.DOTALL)
+                if m:
+                    try:
+                        return json.loads(m.group(0), strict=False)
+                    except Exception:
+                        pass
+                return None
+
             for idx_pos, idx in enumerate(pending_indices, start=1):
                 if self.batch_t1_cancel_requested:
                     stopped_by_user = True
@@ -4605,6 +4864,40 @@ class SystematicReviewApp(tk.Tk):
                     "resumo": sanitize_text(paper.get("Resumo", ""))
                 }
 
+                # Pre-check: if abstract/metadata is missing or corrupt, leave as Pendente without calling API
+                resumo_text = study_info["resumo"].strip()
+                resumo_lower = resumo_text.lower()
+                invalid_markers = [
+                    "", "n/a", "na", "n/d", "nd", "none", "null", "undefined",
+                    "sem resumo", "sem resumo disponível", "sem resumo disponivel",
+                    "abstract not available", "no abstract available",
+                    "não informado", "nao informado", "não disponível", "nao disponivel",
+                    "resumo não disponível", "resumo nao disponivel"
+                ]
+
+                if not resumo_text or resumo_lower in invalid_markers or len(resumo_text) < 20:
+                    paper['Decisao'] = 'Pendente'
+                    paper['Observacoes'] = 'Mantido como Pendente: Resumo ausente, não informado ou metadados insuficientes.'
+                    processed_count += 1
+
+                    def update_insufficient_ui(paper_idx=idx, p=paper, pos=idx_pos, p_id=paper_id):
+                        try:
+                            item_id = str(p['id'])
+                            self.tree_triagem.item(item_id, values=(
+                                p.get("id"), p.get("Título"), p.get("Autores"),
+                                p.get("Ano"), p.get("Fonte"), "Pendente"
+                            ), tags=("Pendente",))
+                        except Exception:
+                            pass
+                        if self.selected_paper_index == paper_idx:
+                            self.update_dynamic_form(p)
+                        self._save_unified_json_quietly()
+                        self.status_var.set(f"⚠️ [{pos}/{total_to_process}] Estudo #{p_id}: Mantido como Pendente (Resumo ausente/insuficiente)")
+
+                    self.after(0, update_insufficient_ui)
+                    time.sleep(0.5)
+                    continue
+
                 prompt = f"""Você é um Parceiro de Triagem Especialista em Revisões Sistemáticas da Literatura.
 Seu papel é analisar o estudo selecionado abaixo com base estrita no protocolo metodológico fornecido.
 
@@ -4615,40 +4908,51 @@ ESTUDO SELECIONADO PARA TRIAGEM (Título e Resumo):
 {json.dumps(study_info, ensure_ascii=False, indent=2)}
 
 INSTRUÇÕES RIGOROSAS DE AVALIAÇÃO E MARCAÇÃO DE CHECKBOXES:
-1. 'criterios_inclusao': Para CADA critério de inclusão listado no protocolo, responda true se o estudo atende, ou false se NÃO atende.
-2. 'criterios_exclusao': Para CADA critério de exclusão listado no protocolo, responda true se o estudo INCORRE no motivo de exclusão ou se deve ser desconsiderado por fuga ao tema/escopo, ou false se NÃO incorre.
+1. VERIFICAÇÃO DE INTEGRIDADE DOS DADOS:
+   Se o resumo estiver ausente, em branco, truncado, corrompido, contendo informações deslocadas/desconectadas, ou se os dados forem insuficientes para definir entre Incluído ou Excluído:
+   - Marque "decisao_sugerida": "Pendente".
+   - Defina todos os critérios de inclusão e exclusão como false.
+   - Em "observacoes", descreva expressamente: "Informações ausentes, deslocadas ou insuficientes para definir inclusão/exclusão."
+2. 'criterios_inclusao': Para CADA critério de inclusão listado no protocolo, responda true se o estudo atende, ou false se NÃO atende.
+3. 'criterios_exclusao': Para CADA critério de exclusão listado no protocolo, responda true se o estudo INCORRE no motivo de exclusão ou se deve ser desconsiderado por fuga ao tema/escopo, ou false se NÃO incorre.
    REGRA OBRIGATÓRIA: Se a decisao_sugerida for "Excluído", você DEVE OBRIGATORIAMENTE marcar true para pelo menos UM critério em 'criterios_exclusao'.
-3. 'perguntas': Responda a cada pergunta analítica com evidências do resumo.
-4. 'decisao_sugerida': "Incluído", "Excluído" ou "Pendente".
-5. 'observacoes': Justificativa técnica citando a aderência ou o motivo de exclusão.
+4. 'perguntas': Responda a cada pergunta analítica com evidências do resumo.
+5. 'decisao_sugerida':
+   - "Incluído": se o trabalho atende a TODOS os critérios de inclusão e NÃO incorre em nenhum critério de exclusão.
+   - "Excluído": se o trabalho falha em critérios de inclusão ou incorre em QUALQUER critério de exclusão.
+   - "Pendente": se o resumo for omisso, deslocado, corrompido ou insuficiente para tomada de decisão.
+6. 'observacoes': Justificativa técnica citando os critérios ou o motivo de pendência/exclusão.
 
 Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
 {{
   "criterios_inclusao": {{ {inc_fmt} }},
   "criterios_exclusao": {{ {exc_fmt} }},
   "perguntas": {{ {q_fmt} }},
-  "decisao_sugerida": "Incluído" ou "Excluído",
+  "decisao_sugerida": "Incluído", "Excluído" ou "Pendente",
   "observacoes": "Justificativa detalhada..."
 }}
 """
-                # Try calling Gemini API with auto-retry for 429/503 rate limit / high demand errors
                 res = None
                 max_retries = 3
+                last_paper_error = ""
+
                 for attempt in range(1, max_retries + 1):
                     try:
                         raw_text = self.call_gemini_api(prompt)
-                        clean_text = raw_text.strip()
-                        if clean_text.startswith("```"):
-                            lines = clean_text.splitlines()
-                            if lines[0].startswith("```"):
-                                lines = lines[1:]
-                            if lines and lines[-1].startswith("```"):
-                                lines = lines[:-1]
-                            clean_text = "\n".join(lines).strip()
-                        res = json.loads(clean_text)
-                        break  # Successful response
+                        res = parse_json_from_response(raw_text)
+                        if res and isinstance(res, dict):
+                            break  # JSON successfully parsed
+                        else:
+                            last_paper_error = "Resposta do Gemini não contém estrutura JSON válida."
+                            logging.warning(f"Erro de parse JSON no estudo #{paper_id} (Tentativa {attempt}). Texto bruto: {str(raw_text)[:200]}")
                     except RuntimeError as r_err:
                         err_msg = str(r_err)
+                        last_paper_error = err_msg
+                        if "Todas as" in err_msg and "exauridas" in err_msg:
+                            # All keys exhausted — stop batch loop immediately
+                            self.after(0, lambda m=err_msg: messagebox.showerror("Cota Exaurida", m))
+                            stopped_by_user = True
+                            break
                         if ("429" in err_msg or "503" in err_msg or "Resource Exhausted" in err_msg or "High Demand" in err_msg) and attempt < max_retries:
                             wait_sec = 6 * attempt
                             self.after(0, lambda pos=idx_pos, p_id=paper_id, w=wait_sec, att=attempt: self.status_var.set(
@@ -4659,8 +4963,12 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
                             logging.warning(f"Erro ao triar estudo #{paper_id} com Gemini (Tentativa {attempt}): {r_err}")
                             break
                     except Exception as paper_err:
+                        last_paper_error = str(paper_err)
                         logging.warning(f"Erro ao triar estudo #{paper_id} com Gemini: {paper_err}")
                         break
+
+                if stopped_by_user:
+                    break
 
                 if res and isinstance(res, dict):
                     inc_res = res.get('criterios_inclusao', {})
@@ -4699,27 +5007,32 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
 
                     processed_count += 1
 
-                    def update_paper_ui(paper_idx=idx, p=paper):
-                        self._save_unified_json_quietly()
+                    def update_paper_ui(paper_idx=idx, p=paper, pos=idx_pos, p_id=paper_id):
                         try:
-                            tree_items = self.tree_triagem.get_children()
-                            if 0 <= paper_idx < len(tree_items):
-                                item_id = tree_items[paper_idx]
-                                self.tree_triagem.item(item_id, values=(
-                                    p.get("id"),
-                                    p.get("Título"),
-                                    p.get("Autores"),
-                                    p.get("Ano"),
-                                    p.get("Fonte"),
-                                    p.get("Decisao", "Pendente")
-                                ), tags=(p.get("Decisao", "Pendente"),))
-                        except Exception:
-                            pass
+                            item_id = str(p['id'])
+                            dec_val = p.get("Decisao", "Pendente")
+                            self.tree_triagem.item(item_id, values=(
+                                p.get("id"),
+                                p.get("Título"),
+                                p.get("Autores"),
+                                p.get("Ano"),
+                                p.get("Fonte"),
+                                dec_val
+                            ), tags=(dec_val,))
+                        except Exception as e:
+                            logging.warning(f"Erro ao atualizar linha da árvore para estudo #{p_id}: {e}")
 
-                        if self.selected_paper_index == paper_idx:
-                            self.update_dynamic_form(p)
+                        self.selected_paper_index = paper_idx
+                        self.update_dynamic_form(p)
+                        self._save_unified_json_quietly()
+                        self.status_var.set(f"✅ [{pos}/{total_to_process}] Estudo #{p_id} triado com sucesso: {p.get('Decisao')}")
 
                     self.after(0, update_paper_ui)
+                else:
+                    err_brief = last_paper_error[:60] if last_paper_error else "Falha no parse de JSON"
+                    self.after(0, lambda pos=idx_pos, p_id=paper_id, err=err_brief: self.status_var.set(
+                        f"⚠️ [{pos}/{total_to_process}] Estudo #{p_id} ignorado ({err})"
+                    ))
 
                 time.sleep(1.5)
 
@@ -4755,9 +5068,8 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
             messagebox.showwarning("Aviso", "Selecione um trabalho na lista acima para analisar.")
             return
 
-        api_key = self.gemini_api_key.get().strip()
-        if not api_key:
-            messagebox.showwarning("API Key Ausente", "Configure sua Chave de API do Gemini na aba 'Configuração Geral'.")
+        if not self._has_gemini_keys():
+            messagebox.showwarning("API Key Ausente", "Nenhuma chave de API configurada. Adicione pelo menos uma na aba 'Configuração Geral'.")
             self.notebook.select(self.tab_general)
             return
 
@@ -4808,6 +5120,31 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
 
         def worker():
             try:
+                # Pre-check for empty/missing abstract in single screening
+                resumo_text = study_info["resumo"].strip()
+                resumo_lower = resumo_text.lower()
+                invalid_markers = [
+                    "", "n/a", "na", "n/d", "nd", "none", "null", "undefined",
+                    "sem resumo", "sem resumo disponível", "sem resumo disponivel",
+                    "abstract not available", "no abstract available",
+                    "não informado", "nao informado", "não disponível", "nao disponivel",
+                    "resumo não disponível", "resumo nao disponivel"
+                ]
+
+                if not resumo_text or resumo_lower in invalid_markers or len(resumo_text) < 20:
+                    def update_insufficient_single():
+                        paper['Decisao'] = 'Pendente'
+                        paper['Observacoes'] = 'Mantido como Pendente: Resumo ausente, não informado ou metadados insuficientes.'
+                        if hasattr(self, 'btn_gemini_t1'):
+                            self.btn_gemini_t1.configure(state="normal")
+                        self.update_dynamic_form(paper)
+                        self._save_unified_json_quietly()
+                        self.status_var.set("⚠️ Estudo mantido como Pendente (Resumo ausente/insuficiente).")
+                        messagebox.showwarning("Informações Insuficientes", "O estudo selecionado não possui resumo suficiente nos metadados.\nFoi mantido com a decisão 'Pendente'.")
+
+                    self.after(0, update_insufficient_single)
+                    return
+
                 prompt = f"""Você é um Parceiro de Triagem Especialista em Revisões Sistemáticas da Literatura.
 Seu papel é analisar o estudo selecionado abaixo com base estrita no protocolo metodológico fornecido.
 
@@ -4818,25 +5155,28 @@ ESTUDO SELECIONADO PARA TRIAGEM (Título e Resumo):
 {json.dumps(study_info, ensure_ascii=False, indent=2)}
 
 INSTRUÇÕES RIGOROSAS DE AVALIAÇÃO E MARCAÇÃO DE CHECKBOXES:
-1. 'criterios_inclusao': Para CADA critério de inclusão listado no protocolo, responda true se o estudo atende, ou false se NÃO atende.
-2. 'criterios_exclusao': Para CADA critério de exclusão listado no protocolo, responda true se o estudo INCORRE no motivo de exclusão ou se deve ser desconsiderado por fuga ao tema/escopo (ex: fora do contexto de fronteira/mobilidade/rotas), ou false se NÃO incorre.
-   REGRA OBRIGATÓRIA: Se a decisao_sugerida for "Excluído", você DEVE OBRIGATORIAMENTE marcar true para pelo menos UM critério em 'criterios_exclusao' (aquele que melhor representa a fuga do tema ou motivo de descarte). Nunca deixe todos como false quando o trabalho for Excluído.
-3. 'perguntas': Responda a cada pergunta analítica com evidências do resumo.
-4. 'decisao_sugerida':
-   - "Incluído": se o trabalho atende a TODOS os critérios de inclusão essenciais e NÃO incorre em nenhum critério de exclusão.
+1. VERIFICAÇÃO DE INTEGRIDADE DOS DADOS:
+   Se o resumo estiver ausente, em branco, truncado, corrompido, contendo informações deslocadas/desconectadas, ou se os dados forem insuficientes para definir entre Incluído ou Excluído:
+   - Marque "decisao_sugerida": "Pendente".
+   - Defina todos os critérios de inclusão e exclusão como false.
+   - Em "observacoes", descreva expressamente: "Informações ausentes, deslocadas ou insuficientes para definir inclusão/exclusão."
+2. 'criterios_inclusao': Para CADA critério de inclusão listado no protocolo, responda true se o estudo atende, ou false se NÃO atende.
+3. 'criterios_exclusao': Para CADA critério de exclusão listado no protocolo, responda true se o estudo INCORRE no motivo de exclusão ou se deve ser desconsiderado por fuga ao tema/escopo, ou false se NÃO incorre.
+   REGRA OBRIGATÓRIA: Se a decisao_sugerida for "Excluído", você DEVE OBRIGATORIAMENTE marcar true para pelo menos UM critério em 'criterios_exclusao'.
+4. 'perguntas': Responda a cada pergunta analítica com evidências do resumo.
+5. 'decisao_sugerida':
+   - "Incluído": se o trabalho atende a TODOS os critérios de inclusão e NÃO incorre em nenhum critério de exclusão.
    - "Excluído": se o trabalho falha em critérios de inclusão ou incorre em QUALQUER critério de exclusão.
-   - "Pendente": somente se as informações no resumo forem totalmente omissas.
-5. 'observacoes': Detalhe a justificativa técnica citando expressamente cada opção:
-   - **Critérios de Inclusão Atendidos/Não Atendidos**: explique a aderência.
-   - **Motivo de Exclusão Enquadrado**: especifique claramente qual critério de exclusão justificou o descarte.
+   - "Pendente": se o resumo for omisso, deslocado, corrompido ou insuficiente para tomada de decisão.
+6. 'observacoes': Justificativa técnica citando os critérios ou o motivo de pendência/exclusão.
 
 Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
 {{
   "criterios_inclusao": {{ {inc_fmt} }},
   "criterios_exclusao": {{ {exc_fmt} }},
   "perguntas": {{ {q_fmt} }},
-  "decisao_sugerida": "Incluído" ou "Excluído",
-  "observacoes": "Justificativa detalhada citando critérios..."
+  "decisao_sugerida": "Incluído", "Excluído" ou "Pendente",
+  "observacoes": "Justificativa detalhada..."
 }}
 """
                 raw_text = self.call_gemini_api(prompt)
@@ -4945,9 +5285,8 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
 
     def suggest_extraction_field_with_gemini(self):
         """Uses Gemini AI to suggest a relevant data extraction field based on protocol and interests."""
-        api_key = self.gemini_api_key.get().strip()
-        if not api_key:
-            messagebox.showwarning("API Key Ausente", "Configure sua Chave de API do Gemini na aba 'Configuração Geral'.")
+        if not self._has_gemini_keys():
+            messagebox.showwarning("API Key Ausente", "Nenhuma chave de API configurada. Adicione pelo menos uma na aba 'Configuração Geral'.")
             self.notebook.select(self.tab_general)
             return
 
@@ -5057,9 +5396,8 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido no formato:
             messagebox.showwarning("Aviso", "Selecione um trabalho na lista de extração para analisar.")
             return
 
-        api_key = self.gemini_api_key.get().strip()
-        if not api_key:
-            messagebox.showwarning("API Key Ausente", "Configure sua Chave de API do Gemini na aba 'Configuração Geral'.")
+        if not self._has_gemini_keys():
+            messagebox.showwarning("API Key Ausente", "Nenhuma chave de API configurada. Adicione pelo menos uma na aba 'Configuração Geral'.")
             self.notebook.select(self.tab_general)
             return
 
