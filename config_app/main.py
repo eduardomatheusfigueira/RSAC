@@ -434,9 +434,8 @@ class SystematicReviewApp(tk.Tk):
 
     def on_tab_changed(self, event):
         """Triggers when notebook tab is changed."""
-        selected_tab = self.notebook.select()
-        if hasattr(self, 'tab_triagem_2') and selected_tab == str(self.tab_triagem_2):
-            self.scan_pdf_directory_t2(show_message=False)
+        # Tab change is fast and passive - no automatic disk or PDF scanning
+        pass
 
     def create_footer(self):
         """Creates the bottom actions and status area."""
@@ -575,9 +574,17 @@ class SystematicReviewApp(tk.Tk):
         self.protocol_canvas.bind('<Enter>', _bind_protocol_mw)
         self.protocol_canvas.bind('<Leave>', _unbind_protocol_mw)
         
-        # Keep width of inner frame matched to canvas
+        # Keep width of inner frame matched to canvas and auto-wrap labels
         def _configure_window(event):
-            self.protocol_canvas.itemconfig(self.protocol_canvas_window, width=event.width)
+            c_w = max(150, event.width - 15)
+            self.protocol_canvas.itemconfig(self.protocol_canvas_window, width=c_w)
+            self.protocol_canvas.configure(scrollregion=self.protocol_canvas.bbox("all"))
+            if hasattr(self, 'protocol_form_inner_frame'):
+                for child in self.protocol_form_inner_frame.winfo_children():
+                    for sub in child.winfo_children():
+                        if isinstance(sub, ttk.Label):
+                            sub.configure(wraplength=max(120, c_w - 25))
+                            
         self.protocol_canvas.bind('<Configure>', _configure_window)
         
         self.protocol_form_inner_frame = ttk.Frame(self.protocol_form_frame)
@@ -589,34 +596,37 @@ class SystematicReviewApp(tk.Tk):
     def add_protocol_field(self, parent, label_text, field_name, field_type="entry", values=None, height=3):
         """Helper to add a labeled field to the protocol form."""
         frame = ttk.Frame(parent)
-        frame.pack(fill="x", pady=6)
+        frame.pack(fill="x", pady=4)
         
-        lbl = ttk.Label(frame, text=label_text, style="Bold.TLabel")
-        lbl.pack(anchor="w", pady=(0, 2))
+        c_w = self.protocol_canvas.winfo_width() if hasattr(self, 'protocol_canvas') and self.protocol_canvas.winfo_width() > 50 else 340
+        w_wrap = max(120, c_w - 25)
+        
+        lbl = ttk.Label(frame, text=label_text, style="Bold.TLabel", wraplength=w_wrap, justify="left")
+        lbl.pack(anchor="w", pady=(0, 2), fill="x")
         
         if field_type == "entry":
-            widget = ttk.Entry(frame)
-            widget.pack(fill="x", ipady=2)
+            widget = ttk.Entry(frame, width=1)
+            widget.pack(fill="x", expand=True, ipady=2)
             self.protocol_widgets[field_name] = widget
         elif field_type == "text":
-            widget = scrolledtext.ScrolledText(frame, wrap="word", font=("Segoe UI", 9), height=height)
-            widget.pack(fill="x")
+            widget = scrolledtext.ScrolledText(frame, wrap="word", font=("Segoe UI", 9), height=height, width=1)
+            widget.pack(fill="x", expand=True)
             self.protocol_widgets[field_name] = widget
         elif field_type == "combobox":
-            widget = ttk.Combobox(frame, values=values or [], state="readonly")
-            widget.pack(fill="x", ipady=2)
+            widget = ttk.Combobox(frame, values=values or [], state="readonly", width=1)
+            widget.pack(fill="x", expand=True, ipady=2)
             if values:
                 widget.set(values[0])
             self.protocol_widgets[field_name] = widget
         elif field_type == "databases":
             db_frame = ttk.Frame(frame)
-            db_frame.pack(fill="x", pady=2)
+            db_frame.pack(fill="x", expand=True, pady=2)
             self.protocol_db_vars = {}
             for db in ["SciELO", "BDTD", "OpenAlex", "PubMed", "Scopus", "Google Scholar", "Outras"]:
                 var = tk.BooleanVar(value=True if db in ["SciELO", "BDTD", "OpenAlex", "PubMed", "Scopus"] else False)
                 self.protocol_db_vars[db] = var
                 chk = ttk.Checkbutton(db_frame, text=db, variable=var)
-                chk.pack(side="left", padx=(0, 15))
+                chk.pack(side="left", padx=(0, 10))
             self.protocol_widgets[field_name] = self.protocol_db_vars
 
     def on_protocol_type_changed(self, event=None):
@@ -631,14 +641,15 @@ class SystematicReviewApp(tk.Tk):
         self.protocol_widgets = {}
         
         # 1. PRISMA-P (Saúde)
+        # 1. PRISMA-P (Saúde)
         if proto_type == "PRISMA-P (Saúde)":
-            self.add_protocol_field(self.protocol_form_inner_frame, "1. Título do Projeto (com PICO e design):", "titulo", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "1. Título do Projeto (com PICO e design):", "titulo", "text", height=2)
             self.add_protocol_field(self.protocol_form_inner_frame, "2. Plataforma de Registo Alvo:", "registro_alvo", "combobox", values=["PROSPERO", "INPLASY", "OSF", "Outra"])
-            self.add_protocol_field(self.protocol_form_inner_frame, "3. Especialista Clínico / Autores:", "autores", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "3. Especialista Clínico / Autores:", "autores", "text", height=2)
             self.add_protocol_field(self.protocol_form_inner_frame, "4. Especialista em Informação / Bibliotecário:", "bibliotecario", "entry")
             self.add_protocol_field(self.protocol_form_inner_frame, "5. Especialista em Bioestatística:", "estatistico", "entry")
-            self.add_protocol_field(self.protocol_form_inner_frame, "6. Envolvimento de Doentes / Consumidores:", "envolvimento", "entry")
-            self.add_protocol_field(self.protocol_form_inner_frame, "7. Justificação / Objetivos:", "objetivo", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "6. Envolvimento de Doentes / Consumidores:", "envolvimento", "text", height=2)
+            self.add_protocol_field(self.protocol_form_inner_frame, "7. Justificação / Objetivos:", "objetivo", "text", height=3)
             
             # PICO Sub-frame
             pico_lbl = ttk.Label(self.protocol_form_inner_frame, text="Questão PICO (Detalhamento):", style="Bold.TLabel", foreground=self.primary_color)
@@ -647,11 +658,11 @@ class SystematicReviewApp(tk.Tk):
             pico_frame = ttk.Frame(self.protocol_form_inner_frame, padding=5)
             pico_frame.pack(fill="x", pady=2)
             
-            self.add_protocol_field(pico_frame, "  * População (P):", "pico_p", "entry")
-            self.add_protocol_field(pico_frame, "  * Intervenção (I):", "pico_i", "entry")
-            self.add_protocol_field(pico_frame, "  * Comparador (C):", "pico_c", "entry")
-            self.add_protocol_field(pico_frame, "  * Outcomes / Resultados (O):", "pico_o", "entry")
-            self.add_protocol_field(pico_frame, "  * Design de Estudo (S):", "pico_s", "entry")
+            self.add_protocol_field(pico_frame, "  * População (P):", "pico_p", "text", height=2)
+            self.add_protocol_field(pico_frame, "  * Intervenção (I):", "pico_i", "text", height=2)
+            self.add_protocol_field(pico_frame, "  * Comparador (C):", "pico_c", "text", height=2)
+            self.add_protocol_field(pico_frame, "  * Outcomes / Resultados (O):", "pico_o", "text", height=2)
+            self.add_protocol_field(pico_frame, "  * Design de Estudo (S):", "pico_s", "text", height=2)
             
             self.add_protocol_field(self.protocol_form_inner_frame, "8. Bases de Dados a Consultar:", "databases", "databases")
             self.add_protocol_field(self.protocol_form_inner_frame, "9. Estratégia de Busca (Descritores / Strings por linha):", "busca", "text", height=4)
@@ -672,8 +683,8 @@ class SystematicReviewApp(tk.Tk):
             self.add_protocol_field(self.protocol_form_inner_frame, "13. Critérios de Inclusão (Um por linha):", "criterios_inclusao", "text", height=4)
             self.add_protocol_field(self.protocol_form_inner_frame, "14. Critérios de Exclusão (Um por linha):", "criterios_exclusao", "text", height=4)
             self.add_protocol_field(self.protocol_form_inner_frame, "15. Questões / Campos de Extração de Dados (Um por linha):", "campos_extracao", "text", height=4)
-            self.add_protocol_field(self.protocol_form_inner_frame, "16. Ferramenta de Gestão (ex: Covidence, Rayyan):", "gestao", "entry")
-            self.add_protocol_field(self.protocol_form_inner_frame, "17. Mecanismo de Desempate:", "conflitos", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "16. Ferramenta de Gestão (ex: Covidence, Rayyan):", "gestao", "text", height=2)
+            self.add_protocol_field(self.protocol_form_inner_frame, "17. Mecanismo de Desempate:", "conflitos", "text", height=2)
             self.add_protocol_field(self.protocol_form_inner_frame, "18. Avaliação do Risco de Viés (RoB):", "vies_robs", "combobox", values=["RoB 2 (Randomizados)", "ROBINS-I (Não randomizados)", "Outra"])
             self.add_protocol_field(self.protocol_form_inner_frame, "19. Avaliação da Certeza da Evidência:", "grade", "combobox", values=["Metodologia GRADE", "Não se aplica"])
             self.add_protocol_field(self.protocol_form_inner_frame, "20. Meta-análise (heterogeneidade I² aceitável):", "meta_analise", "entry")
@@ -689,10 +700,10 @@ class SystematicReviewApp(tk.Tk):
             
         # 2. Campbell (Sociais)
         elif proto_type == "Campbell (Sociais)":
-            self.add_protocol_field(self.protocol_form_inner_frame, "1. Título do Projeto:", "titulo", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "1. Título do Projeto:", "titulo", "text", height=2)
             self.add_protocol_field(self.protocol_form_inner_frame, "2. Plataforma de Registo Alvo:", "registro_alvo", "combobox", values=["OSF", "INPLASY", "Campbell Library", "Outra"])
-            self.add_protocol_field(self.protocol_form_inner_frame, "3. Autores / Equipe:", "autores", "entry")
-            self.add_protocol_field(self.protocol_form_inner_frame, "4. Foco em Equidade, Diversidade e Inclusão (EDI):", "edi", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "3. Autores / Equipe:", "autores", "text", height=2)
+            self.add_protocol_field(self.protocol_form_inner_frame, "4. Foco em Equidade, Diversidade e Inclusão (EDI):", "edi", "text", height=2)
             
             # SPICE/SPIDER Sub-frame
             spice_lbl = ttk.Label(self.protocol_form_inner_frame, text="Questão SPICE / SPIDER (Detalhamento):", style="Bold.TLabel", foreground=self.primary_color)
@@ -701,11 +712,11 @@ class SystematicReviewApp(tk.Tk):
             spice_frame = ttk.Frame(self.protocol_form_inner_frame, padding=5)
             spice_frame.pack(fill="x", pady=2)
             
-            self.add_protocol_field(spice_frame, "  * Cenário (Setting) (S):", "spice_s", "entry")
-            self.add_protocol_field(spice_frame, "  * Perspetiva / Amostra (Population) (P):", "spice_p", "entry")
-            self.add_protocol_field(spice_frame, "  * Intervenção / Fenómeno (Intervention) (I):", "spice_i", "entry")
-            self.add_protocol_field(spice_frame, "  * Comparador (Comparison) (C):", "spice_c", "entry")
-            self.add_protocol_field(spice_frame, "  * Avaliação / Resultados (Evaluation) (E):", "spice_e", "entry")
+            self.add_protocol_field(spice_frame, "  * Cenário (Setting) (S):", "spice_s", "text", height=2)
+            self.add_protocol_field(spice_frame, "  * Perspetiva / Amostra (Population) (P):", "spice_p", "text", height=2)
+            self.add_protocol_field(spice_frame, "  * Intervenção / Fenómeno (Intervention) (I):", "spice_i", "text", height=2)
+            self.add_protocol_field(spice_frame, "  * Comparador (Comparison) (C):", "spice_c", "text", height=2)
+            self.add_protocol_field(spice_frame, "  * Avaliação / Resultados (Evaluation) (E):", "spice_e", "text", height=2)
             
             self.add_protocol_field(self.protocol_form_inner_frame, "5. Bases de Dados a Consultar:", "databases", "databases")
             self.add_protocol_field(self.protocol_form_inner_frame, "6. Estratégia de Busca (Descritores / Strings por linha):", "busca", "text", height=4)
@@ -838,11 +849,12 @@ class SystematicReviewApp(tk.Tk):
             self.protocol_widgets['campos_extracao'].insert(tk.END, "Objetivo do Estudo\nMétodo / Abordagem\nParticipantes / Amostra\nPrincipais Resultados\nConclusões / Limitações\n")
             
         # 5. Umbrella Review (Overview)
+        # 5. Umbrella Review (Overview)
         elif proto_type == "Umbrella Review (Overview)":
-            self.add_protocol_field(self.protocol_form_inner_frame, "1. Título da Umbrella Review / Overview:", "titulo", "entry")
-            self.add_protocol_field(self.protocol_form_inner_frame, "2. Racional / Saturação Bibliográfica:", "justificativa", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "1. Título da Umbrella Review / Overview:", "titulo", "text", height=2)
+            self.add_protocol_field(self.protocol_form_inner_frame, "2. Racional / Saturação Bibliográfica:", "justificativa", "text", height=3)
             self.add_protocol_field(self.protocol_form_inner_frame, "3. Plataforma de Registo Alvo:", "registro_alvo", "combobox", values=["PROSPERO", "INPLASY", "OSF", "Outra"])
-            self.add_protocol_field(self.protocol_form_inner_frame, "4. Tipo de Revisões Elegíveis (Meta-análise, Scoping, etc.):", "criterios_revisoes", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "4. Tipo de Revisões Elegíveis (Meta-análise, Scoping, etc.):", "criterios_revisoes", "text", height=2)
             self.add_protocol_field(self.protocol_form_inner_frame, "5. Bases de Dados a Consultar:", "databases", "databases")
             self.add_protocol_field(self.protocol_form_inner_frame, "6. Estratégia de Busca (Descritores / Strings por linha):", "busca", "text", height=4)
             
@@ -872,8 +884,8 @@ class SystematicReviewApp(tk.Tk):
             self.add_protocol_field(qual_frame, "  * Usar AMSTAR-2 (16 itens, relato metodológico global):", "qualidade_amstar", "combobox", values=["Sim", "Não"])
             self.add_protocol_field(qual_frame, "  * Usar ROBIS (24 itens, microscopia de risco de viés):", "qualidade_robis", "combobox", values=["Sim", "Não"])
             
-            self.add_protocol_field(self.protocol_form_inner_frame, "12. Resolução de Discordâncias AMSTAR/ROBIS:", "concordancia", "entry")
-            self.add_protocol_field(self.protocol_form_inner_frame, "13. Gestão de Sobreposição (Overlap) - Matriz / CCA:", "overlap", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "12. Resolução de Discordâncias AMSTAR/ROBIS:", "concordancia", "text", height=2)
+            self.add_protocol_field(self.protocol_form_inner_frame, "13. Gestão de Sobreposição (Overlap) - Matriz / CCA:", "overlap", "text", height=2)
             
             # Fill some defaults
             self.protocol_widgets['limite_ano_inicio'].insert(0, "2018")
@@ -883,9 +895,9 @@ class SystematicReviewApp(tk.Tk):
             
         # 6. Scoping Review (PRISMA-ScR)
         elif proto_type == "Scoping Review (PRISMA-ScR)":
-            self.add_protocol_field(self.protocol_form_inner_frame, "1. Título do Projeto (com PCC):", "titulo", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "1. Título do Projeto (com PCC):", "titulo", "text", height=2)
             self.add_protocol_field(self.protocol_form_inner_frame, "2. Plataforma de Registo Alvo:", "registro_alvo", "combobox", values=["OSF", "JBI Library", "Outra"])
-            self.add_protocol_field(self.protocol_form_inner_frame, "3. Justificação e Objetivos:", "objetivo", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "3. Justificação e Objetivos:", "objetivo", "text", height=3)
             
             # PCC sub-frame
             pcc_lbl = ttk.Label(self.protocol_form_inner_frame, text="Framework PCC (Detalhamento):", style="Bold.TLabel", foreground=self.primary_color)
@@ -894,9 +906,9 @@ class SystematicReviewApp(tk.Tk):
             pcc_frame = ttk.Frame(self.protocol_form_inner_frame, padding=5)
             pcc_frame.pack(fill="x", pady=2)
             
-            self.add_protocol_field(pcc_frame, "  * População (P):", "pcc_p", "entry")
-            self.add_protocol_field(pcc_frame, "  * Conceito (C):", "pcc_c1", "entry")
-            self.add_protocol_field(pcc_frame, "  * Contexto (C):", "pcc_c2", "entry")
+            self.add_protocol_field(pcc_frame, "  * População (P):", "pcc_p", "text", height=2)
+            self.add_protocol_field(pcc_frame, "  * Conceito (C):", "pcc_c1", "text", height=2)
+            self.add_protocol_field(pcc_frame, "  * Contexto (C):", "pcc_c2", "text", height=2)
             
             self.add_protocol_field(self.protocol_form_inner_frame, "4. Bases de Dados a Consultar:", "databases", "databases")
             self.add_protocol_field(self.protocol_form_inner_frame, "5. Estratégia de Busca (Descritores / Strings por linha):", "busca", "text", height=4)
@@ -917,7 +929,7 @@ class SystematicReviewApp(tk.Tk):
             self.add_protocol_field(self.protocol_form_inner_frame, "9. Critérios de Inclusão (Um por linha):", "criterios_inclusao", "text", height=4)
             self.add_protocol_field(self.protocol_form_inner_frame, "10. Critérios de Exclusão (Um por linha):", "criterios_exclusao", "text", height=4)
             self.add_protocol_field(self.protocol_form_inner_frame, "11. Questões / Campos de Extração de Dados (Um por linha):", "campos_extracao", "text", height=4)
-            self.add_protocol_field(self.protocol_form_inner_frame, "12. Plano de Extração e Mapeamento de Evidências:", "mapeamento", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "12. Plano de Extração e Mapeamento de Evidências:", "mapeamento", "text", height=3)
             
             # Fill some defaults
             self.protocol_widgets['idioma'].insert(0, "por, eng")
@@ -928,9 +940,9 @@ class SystematicReviewApp(tk.Tk):
             
         # 7. Methodi Ordinatio
         elif proto_type == "Methodi Ordinatio":
-            self.add_protocol_field(self.protocol_form_inner_frame, "1. Título do Projeto:", "titulo", "entry")
-            self.add_protocol_field(self.protocol_form_inner_frame, "2. Autores / Equipe:", "autores", "entry")
-            self.add_protocol_field(self.protocol_form_inner_frame, "3. Objetivos / Pergunta de Pesquisa:", "objetivo", "entry")
+            self.add_protocol_field(self.protocol_form_inner_frame, "1. Título do Projeto:", "titulo", "text", height=2)
+            self.add_protocol_field(self.protocol_form_inner_frame, "2. Autores / Equipe:", "autores", "text", height=2)
+            self.add_protocol_field(self.protocol_form_inner_frame, "3. Objetivos / Pergunta de Pesquisa:", "objetivo", "text", height=3)
             self.add_protocol_field(self.protocol_form_inner_frame, "4. Bases de Dados a Consultar:", "databases", "databases")
             self.add_protocol_field(self.protocol_form_inner_frame, "5. Estratégia de Busca (Descritores / Strings por linha):", "busca", "text", height=4)
             
@@ -1370,6 +1382,12 @@ class SystematicReviewApp(tk.Tk):
         self.exclusion_criteria = session.get('criterios_exclusao', [])
         self.triagem_questions = session.get('perguntas', [])
         self.campos_extracao = session.get('campos_extracao', [])
+        if not self.campos_extracao:
+            proto_ext = session.get('protocolo', {}).get('campos_extracao', '')
+            if isinstance(proto_ext, str) and proto_ext.strip():
+                self.campos_extracao = [line.strip() for line in proto_ext.strip().splitlines() if line.strip()]
+            elif isinstance(proto_ext, list) and proto_ext:
+                self.campos_extracao = proto_ext
 
         # Rebuild Left Pane widgets lists
         self.lst_triagem_files.delete(0, tk.END)
@@ -1402,7 +1420,6 @@ class SystematicReviewApp(tk.Tk):
         # Populate Treeview for Triagem 2
         try:
             self.populate_treeview_t2()
-            self.scan_pdf_directory_t2(show_message=False)
         except Exception:
             pass
 
@@ -2513,12 +2530,25 @@ class SystematicReviewApp(tk.Tk):
         canvas.bind('<Enter>', _bind_triagem_mw)
         canvas.bind('<Leave>', _unbind_triagem_mw)
         
+        # Helper for scrollable listbox with horizontal and vertical scrollbars
+        def _create_scrollable_listbox(parent, height=4):
+            b_frame = ttk.Frame(parent)
+            b_frame.pack(fill="x", expand=True, pady=(0, 5))
+            h_scroll = ttk.Scrollbar(b_frame, orient="horizontal")
+            v_scroll = ttk.Scrollbar(b_frame, orient="vertical")
+            lb = tk.Listbox(b_frame, height=height, font=("Segoe UI", 9), xscrollcommand=h_scroll.set, yscrollcommand=v_scroll.set)
+            h_scroll.config(command=lb.xview)
+            v_scroll.config(command=lb.yview)
+            v_scroll.pack(side="right", fill="y")
+            h_scroll.pack(side="bottom", fill="x")
+            lb.pack(side="left", fill="both", expand=True)
+            return lb
+
         # 1. Sources (CSV Files)
         files_frame = ttk.LabelFrame(self.triagem_scroll_frame, text="Arquivos de Resultados (.csv, .xlsx)", padding=10)
         files_frame.pack(fill="x", pady=5)
         
-        self.lst_triagem_files = tk.Listbox(files_frame, height=4, font=("Segoe UI", 9))
-        self.lst_triagem_files.pack(fill="x", pady=(0, 5))
+        self.lst_triagem_files = _create_scrollable_listbox(files_frame, height=4)
         
         btn_files_frame = ttk.Frame(files_frame)
         btn_files_frame.pack(fill="x")
@@ -2529,10 +2559,9 @@ class SystematicReviewApp(tk.Tk):
         inc_frame = ttk.LabelFrame(self.triagem_scroll_frame, text="Critérios de Inclusão", padding=10)
         inc_frame.pack(fill="x", pady=5)
         
-        self.lst_inc_criteria = tk.Listbox(inc_frame, height=4, font=("Segoe UI", 9))
-        self.lst_inc_criteria.pack(fill="x", pady=(0, 5))
+        self.lst_inc_criteria = _create_scrollable_listbox(inc_frame, height=4)
         
-        self.ent_new_inc = ttk.Entry(inc_frame)
+        self.ent_new_inc = ttk.Entry(inc_frame, width=1)
         self.ent_new_inc.pack(fill="x", pady=(0, 5))
         self.ent_new_inc.bind("<Return>", lambda e: self.add_inclusion_criterion())
         
@@ -2545,10 +2574,9 @@ class SystematicReviewApp(tk.Tk):
         exc_frame = ttk.LabelFrame(self.triagem_scroll_frame, text="Critérios de Exclusão", padding=10)
         exc_frame.pack(fill="x", pady=5)
         
-        self.lst_exc_criteria = tk.Listbox(exc_frame, height=4, font=("Segoe UI", 9))
-        self.lst_exc_criteria.pack(fill="x", pady=(0, 5))
+        self.lst_exc_criteria = _create_scrollable_listbox(exc_frame, height=4)
         
-        self.ent_new_exc = ttk.Entry(exc_frame)
+        self.ent_new_exc = ttk.Entry(exc_frame, width=1)
         self.ent_new_exc.pack(fill="x", pady=(0, 5))
         self.ent_new_exc.bind("<Return>", lambda e: self.add_exclusion_criterion())
         
@@ -2561,10 +2589,9 @@ class SystematicReviewApp(tk.Tk):
         q_frame = ttk.LabelFrame(self.triagem_scroll_frame, text="Perguntas da Triagem", padding=10)
         q_frame.pack(fill="x", pady=5)
         
-        self.lst_triagem_questions = tk.Listbox(q_frame, height=4, font=("Segoe UI", 9))
-        self.lst_triagem_questions.pack(fill="x", pady=(0, 5))
+        self.lst_triagem_questions = _create_scrollable_listbox(q_frame, height=4)
         
-        self.ent_new_q = ttk.Entry(q_frame)
+        self.ent_new_q = ttk.Entry(q_frame, width=1)
         self.ent_new_q.pack(fill="x", pady=(0, 5))
         self.ent_new_q.bind("<Return>", lambda e: self.add_triagem_question())
         
@@ -2674,12 +2701,22 @@ class SystematicReviewApp(tk.Tk):
         form_canvas.pack(side="left", fill="both", expand=True)
         
         self.dynamic_form_frame = ttk.Frame(form_canvas, padding=5)
-        self.dynamic_form_frame.bind(
-            "<Configure>",
-            lambda e: form_canvas.configure(scrollregion=form_canvas.bbox("all"))
-        )
-        form_canvas.create_window((0, 0), window=self.dynamic_form_frame, anchor="nw")
+        canvas_win_t1 = form_canvas.create_window((0, 0), window=self.dynamic_form_frame, anchor="nw")
         form_canvas.configure(yscrollcommand=form_scrollbar.set)
+        
+        def _configure_t1_form_canvas(event):
+            c_w = max(100, event.width - 25)
+            form_canvas.itemconfig(canvas_win_t1, width=c_w)
+            form_canvas.configure(scrollregion=form_canvas.bbox("all"))
+            if hasattr(self, 'dynamic_form_inner_frame'):
+                w_wrap1 = max(90, c_w - 20)
+                for child in self.dynamic_form_inner_frame.winfo_children():
+                    if isinstance(child, ttk.Label):
+                        child.configure(wraplength=w_wrap1)
+                    elif isinstance(child, tk.Checkbutton):
+                        child.configure(wraplength=w_wrap1)
+                        
+        form_canvas.bind('<Configure>', _configure_t1_form_canvas)
         
         self.dynamic_form_inner_frame = ttk.Frame(self.dynamic_form_frame)
         self.dynamic_form_inner_frame.pack(fill="both", expand=True)
@@ -2748,12 +2785,18 @@ class SystematicReviewApp(tk.Tk):
         
         # 2. Extraction Fields Frame
         fields_frame = ttk.LabelFrame(self.triagem_2_scroll_frame, text="Campos de Extração de Dados", padding=10)
-        fields_frame.pack(fill="x", pady=5)
+        b_frame = ttk.Frame(fields_frame)
+        b_frame.pack(fill="x", expand=True, pady=(0, 5))
+        h_scroll = ttk.Scrollbar(b_frame, orient="horizontal")
+        v_scroll = ttk.Scrollbar(b_frame, orient="vertical")
+        self.lst_ext_fields = tk.Listbox(b_frame, height=5, font=("Segoe UI", 9), xscrollcommand=h_scroll.set, yscrollcommand=v_scroll.set)
+        h_scroll.config(command=self.lst_ext_fields.xview)
+        v_scroll.config(command=self.lst_ext_fields.yview)
+        v_scroll.pack(side="right", fill="y")
+        h_scroll.pack(side="bottom", fill="x")
+        self.lst_ext_fields.pack(side="left", fill="both", expand=True)
         
-        self.lst_ext_fields = tk.Listbox(fields_frame, height=5, font=("Segoe UI", 9))
-        self.lst_ext_fields.pack(fill="x", pady=(0, 5))
-        
-        self.ent_new_ext_field = ttk.Entry(fields_frame)
+        self.ent_new_ext_field = ttk.Entry(fields_frame, width=1)
         self.ent_new_ext_field.pack(fill="x", pady=(0, 5))
         self.ent_new_ext_field.bind("<Return>", lambda e: self.add_extraction_field())
         
@@ -2771,7 +2814,7 @@ class SystematicReviewApp(tk.Tk):
         pdf_frame.pack(fill="x", pady=5)
         
         ttk.Label(pdf_frame, text="Pasta de Downloads:", style="Bold.TLabel").pack(anchor="w", pady=(0, 2))
-        ent_pdf_dir = ttk.Entry(pdf_frame, textvariable=self.pdf_download_dir)
+        ent_pdf_dir = ttk.Entry(pdf_frame, textvariable=self.pdf_download_dir, width=1)
         ent_pdf_dir.pack(fill="x", pady=(0, 5))
         
         ttk.Button(pdf_frame, text="Selecionar Pasta...", style="Secondary.TButton", command=self.select_pdf_download_dir).pack(fill="x", pady=(0, 5))
@@ -2865,9 +2908,29 @@ class SystematicReviewApp(tk.Tk):
         self.lbl_search_count_t2 = ttk.Label(search_frame, text="0/0", font=("Segoe UI", 9))
         self.lbl_search_count_t2.pack(side="left", padx=5)
         
-        # Scrollable text widget for PDF text
+        # PDF buttons frame (anchored at bottom of left panel)
+        pdf_buttons_frame = ttk.Frame(pdf_text_frame, padding=(0, 2, 0, 2))
+        pdf_buttons_frame.pack(side="bottom", fill="x")
+        
+        btn_row1 = ttk.Frame(pdf_buttons_frame)
+        btn_row1.pack(fill="x", pady=1)
+        self.btn_download_single_pdf = ttk.Button(btn_row1, text="Baixar PDF", style="Secondary.TButton", command=self.download_current_pdf_t2)
+        self.btn_download_single_pdf.pack(side="left", padx=2, expand=True, fill="x")
+        self.btn_associate_local_pdf = ttk.Button(btn_row1, text="Associar PDF Local", style="Secondary.TButton", command=self.associate_local_pdf_t2)
+        self.btn_associate_local_pdf.pack(side="left", padx=2, expand=True, fill="x")
+        self.btn_open_external_pdf = ttk.Button(btn_row1, text="Abrir no Leitor", style="Secondary.TButton", command=self.open_current_pdf_externally)
+        self.btn_open_external_pdf.pack(side="left", padx=2, expand=True, fill="x")
+        
+        btn_row2 = ttk.Frame(pdf_buttons_frame)
+        btn_row2.pack(fill="x", pady=1)
+        self.btn_open_pdf_link = ttk.Button(btn_row2, text="Abrir Link do Artigo", style="Secondary.TButton", command=self.open_current_pdf_link)
+        self.btn_open_pdf_link.pack(side="left", padx=2, expand=True, fill="x")
+        self.btn_gemini_pdf_t2 = ttk.Button(btn_row2, text="✨ Extrair Dados com IA", style="Secondary.TButton", command=self.run_gemini_extracao_partner)
+        self.btn_gemini_pdf_t2.pack(side="left", padx=2, expand=True, fill="x")
+
+        # Scrollable text widget for PDF text (fills remaining center space)
         self.txt_pdf_text_t2 = scrolledtext.ScrolledText(pdf_text_frame, wrap="word", font=("Segoe UI", 9), bg="#ffffff")
-        self.txt_pdf_text_t2.pack(fill="both", expand=True)
+        self.txt_pdf_text_t2.pack(side="top", fill="both", expand=True)
         self.txt_pdf_text_t2.tag_configure("match", background="yellow", foreground="black")
         self.txt_pdf_text_t2.tag_configure("current_match", background="orange", foreground="black")
         self.txt_pdf_text_t2.configure(state="disabled")
@@ -2876,53 +2939,57 @@ class SystematicReviewApp(tk.Tk):
         enable_win_dnd(self.txt_pdf_text_t2, self.on_pdf_drop_t2)
         enable_win_dnd(pdf_text_frame, self.on_pdf_drop_t2)
         
-        # PDF buttons frame
-        pdf_buttons_frame = ttk.Frame(pdf_text_frame, padding=(0, 5, 0, 0))
-        pdf_buttons_frame.pack(fill="x")
-        
-        self.btn_download_single_pdf = ttk.Button(pdf_buttons_frame, text="Baixar PDF", style="Secondary.TButton", command=self.download_current_pdf_t2)
-        self.btn_download_single_pdf.pack(side="left", padx=2)
-        
-        self.btn_associate_local_pdf = ttk.Button(pdf_buttons_frame, text="Associar PDF Local", style="Secondary.TButton", command=self.associate_local_pdf_t2)
-        self.btn_associate_local_pdf.pack(side="left", padx=2)
-        
-        self.btn_open_external_pdf = ttk.Button(pdf_buttons_frame, text="Abrir PDF no Leitor", style="Secondary.TButton", command=self.open_current_pdf_externally)
-        self.btn_open_external_pdf.pack(side="left", padx=2)
-        
-        self.btn_open_pdf_link = ttk.Button(pdf_buttons_frame, text="Abrir Link do Artigo", style="Secondary.TButton", command=self.open_current_pdf_link)
-        self.btn_open_pdf_link.pack(side="left", padx=2)
-        
-        self.btn_gemini_pdf_t2 = ttk.Button(pdf_buttons_frame, text="✨ Extrair Dados com IA", style="Secondary.TButton", command=self.run_gemini_extracao_partner)
-        self.btn_gemini_pdf_t2.pack(side="left", padx=2)
-
-        
         # Extraction Form Frame (Right)
         self.form_container_frame_t2 = ttk.LabelFrame(bottom_split, text="Campos de Extração", padding=5)
         bottom_split.add(self.form_container_frame_t2, weight=1)
         
-        # Canvas scrollable for dynamic fields
-        form_canvas_t2 = tk.Canvas(self.form_container_frame_t2, borderwidth=0, highlightthickness=0)
-        form_scrollbar_t2 = ttk.Scrollbar(self.form_container_frame_t2, orient="vertical", command=form_canvas_t2.yview)
-        form_scrollbar_t2.pack(side="right", fill="y")
-        form_canvas_t2.pack(side="left", fill="both", expand=True)
+        # Fixed Footer Action Bar (always visible at bottom of right panel)
+        self.footer_t2 = ttk.Frame(self.form_container_frame_t2, padding=(0, 5, 0, 0))
+        self.footer_t2.pack(side="bottom", fill="x")
+        self.footer_t2.columnconfigure(0, weight=1)
+        self.footer_t2.columnconfigure(1, weight=1)
         
-        self.dynamic_form_frame_t2 = ttk.Frame(form_canvas_t2, padding=5)
-        self.dynamic_form_frame_t2.bind(
-            "<Configure>",
-            lambda e: form_canvas_t2.configure(scrollregion=form_canvas_t2.bbox("all"))
-        )
-        form_canvas_t2.create_window((0, 0), window=self.dynamic_form_frame_t2, anchor="nw")
-        form_canvas_t2.configure(yscrollcommand=form_scrollbar_t2.set)
+        self.btn_gemini_t2 = ttk.Button(self.footer_t2, text="✨ Extrair com Gemini", style="Secondary.TButton", command=self.run_gemini_extracao_partner)
+        self.btn_gemini_t2.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        
+        self.btn_save_t2 = ttk.Button(self.footer_t2, text="Salvar Extração e Próximo", style="Primary.TButton", command=self.save_extraction_and_next_t2)
+        self.btn_save_t2.grid(row=0, column=1, sticky="ew")
+
+        # Scrollable Canvas for dynamic fields (occupies remaining center space)
+        self.form_canvas_t2 = tk.Canvas(self.form_container_frame_t2, borderwidth=0, highlightthickness=0)
+        form_scrollbar_t2 = ttk.Scrollbar(self.form_container_frame_t2, orient="vertical", command=self.form_canvas_t2.yview)
+        form_scrollbar_t2.pack(side="right", fill="y")
+        self.form_canvas_t2.pack(side="left", fill="both", expand=True)
+        
+        self.dynamic_form_frame_t2 = ttk.Frame(self.form_canvas_t2, padding=2)
+        canvas_win_t2 = self.form_canvas_t2.create_window((0, 0), window=self.dynamic_form_frame_t2, anchor="nw")
         
         self.dynamic_form_inner_frame_t2 = ttk.Frame(self.dynamic_form_frame_t2)
         self.dynamic_form_inner_frame_t2.pack(fill="both", expand=True)
+        self.dynamic_form_inner_frame_t2.grid_columnconfigure(0, weight=1)
+
+        def _on_canvas_configure_t2(event):
+            c_width = max(120, event.width - 15)
+            self.form_canvas_t2.itemconfig(canvas_win_t2, width=c_width)
+            self.form_canvas_t2.configure(scrollregion=self.form_canvas_t2.bbox("all"))
+            self.dynamic_form_inner_frame_t2.grid_columnconfigure(0, weight=1)
+            for child in self.dynamic_form_inner_frame_t2.winfo_children():
+                if isinstance(child, ttk.Label):
+                    child.configure(wraplength=max(100, c_width - 20))
+
+        self.dynamic_form_frame_t2.bind(
+            "<Configure>",
+            lambda e: self.form_canvas_t2.configure(scrollregion=self.form_canvas_t2.bbox("all"))
+        )
+        self.form_canvas_t2.bind("<Configure>", _on_canvas_configure_t2)
+        self.form_canvas_t2.configure(yscrollcommand=form_scrollbar_t2.set)
         
         # Enable mouse wheel scrolling when hovering over the canvas
         def _on_mousewheel_right_t2(event):
-            form_canvas_t2.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            self.form_canvas_t2.yview_scroll(int(-1 * (event.delta / 120)), "units")
             
-        form_canvas_t2.bind('<Enter>', lambda e: form_canvas_t2.bind_all("<MouseWheel>", _on_mousewheel_right_t2))
-        form_canvas_t2.bind('<Leave>', lambda e: form_canvas_t2.unbind_all("<MouseWheel>"))
+        self.form_canvas_t2.bind('<Enter>', lambda e: self.form_canvas_t2.bind_all("<MouseWheel>", _on_mousewheel_right_t2))
+        self.form_canvas_t2.bind('<Leave>', lambda e: self.form_canvas_t2.unbind_all("<MouseWheel>"))
 
     def sync_with_triagem_1(self):
         """Synchronizes the current memory session with Triagem 2."""
@@ -2932,7 +2999,6 @@ class SystematicReviewApp(tk.Tk):
             return
         
         self.populate_treeview_t2()
-        self.scan_pdf_directory_t2(show_message=False)
         
         num_included = len(self.tree_triagem_2.get_children())
         num_done = sum(1 for t in self.current_session.get('trabalhos', []) if t.get('Decisao') == 'Incluído' and t.get('Extracao', {}).get('status_extracao') == 'Concluída')
@@ -3088,7 +3154,7 @@ class SystematicReviewApp(tk.Tk):
             self.status_var.set(f"Pasta de download de PDFs: {os.path.basename(dir_path)}")
 
     def resolve_pdf_url(self, url):
-        """Helper to resolve direct PDF download URL from landing page URLs."""
+        """Helper to resolve direct PDF download URL from landing page URLs (Fast & Non-blocking)."""
         if not url:
             return ""
         url_lower = url.lower()
@@ -3096,6 +3162,64 @@ class SystematicReviewApp(tk.Tk):
             return url
         if "scielo" in url_lower and "script=sci_arttext" in url_lower:
             return url.replace("script=sci_arttext", "script=sci_pdf")
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        }
+
+        # Fast timeout (3s connect, 5s read) to prevent stalling background threads
+        fast_timeout = (3, 5)
+
+        # USP Teses
+        if "teses.usp.br" in url_lower:
+            try:
+                target_url = url if url.endswith("pt-br.html") else url.rstrip("/") + "/pt-br.html"
+                r = requests.get(target_url, headers=headers, timeout=fast_timeout, verify=False, allow_redirects=True)
+                if r.status_code == 200:
+                    links = re.findall(r'href=["\']([^"\']+)["\']', r.text, re.IGNORECASE)
+                    pdf_links = [l for l in links if ('.pdf' in l.lower() or 'publico' in l.lower()) and 'politica' not in l.lower()]
+                    if pdf_links:
+                        return urllib.parse.urljoin(r.url, pdf_links[0])
+            except Exception:
+                pass
+
+        # HTML Landing Page Scraper for DSpace / Handle / Repositories
+        try:
+            r = requests.get(url, headers=headers, timeout=fast_timeout, verify=False, allow_redirects=True)
+            if r.status_code == 200:
+                content_type = r.headers.get('Content-Type', '').lower()
+                if 'application/pdf' in content_type or r.content.startswith(b'%PDF'):
+                    return r.url
+                
+                html = r.text
+                # Fast fail if anti-bot challenge page detected
+                if 'certificando' in html.lower() or 'bot' in html.lower() and 'challenge' in html.lower():
+                    return url
+
+                links = re.findall(r'href=["\']([^"\']+)["\']', html, re.IGNORECASE)
+                final_handle_match = re.search(r'handle/([^/\?]+)/([^/\?]+)', r.url)
+                handle_id = final_handle_match.group(2) if final_handle_match else ""
+
+                candidates = []
+                for l in links:
+                    l_lower = l.lower()
+                    if any(bad in l_lower for bad in ['thumbnail', 'license', 'policy', 'politica', 'logo', 'css', 'js', '.png', '.jpg', '.jpeg', 'tutorial', 'guia']):
+                        continue
+                    if ('bitstream' in l_lower or '/retrieve/' in l_lower or '/download/' in l_lower or '.pdf' in l_lower):
+                        score = 0
+                        if handle_id and handle_id in l_lower: score += 10
+                        if '.pdf' in l_lower: score += 5
+                        if 'bitstream' in l_lower: score += 3
+                        if 'sequence=1' in l_lower or 'isallowed=y' in l_lower: score += 2
+                        candidates.append((score, l))
+                        
+                if candidates:
+                    candidates.sort(key=lambda x: x[0], reverse=True)
+                    return urllib.parse.urljoin(r.url, candidates[0][1])
+        except Exception:
+            pass
+
         return url
 
     def download_current_pdf_t2(self):
@@ -3164,13 +3288,13 @@ class SystematicReviewApp(tk.Tk):
                 paper['Extracao'] = {}
             ext = paper['Extracao']
 
-                
             ext['status_pdf'] = "Baixando..."
             
-            response = requests.get(resolved_url, headers=headers, timeout=20, allow_redirects=True)
+            # Use bounded timeout (4s connect, 10s read)
+            response = requests.get(resolved_url, headers=headers, timeout=(4, 10), verify=False, allow_redirects=True)
             
             if response.status_code == 200:
-                content_type = response.headers.get('Content-Type', '')
+                content_type = response.headers.get('Content-Type', '').lower()
                 if 'text/html' in content_type and not response.content.startswith(b'%PDF'):
                     ext['status_pdf'] = "Erro"
                     return False
@@ -3205,7 +3329,7 @@ class SystematicReviewApp(tk.Tk):
             return
             
         self.btn_download_all_pdfs.configure(state="disabled")
-        self.status_var.set("Iniciando download em lote de PDFs...")
+        self.status_var.set("Iniciando download em lote de PDFs em segundo plano...")
         
         threading.Thread(target=self.download_all_pdfs_worker, args=(download_dir,), daemon=True).start()
 
@@ -3247,13 +3371,6 @@ class SystematicReviewApp(tk.Tk):
             p_id = paper['id']
             ext = paper.get('Extracao', {})
             
-            def set_downloading():
-                try:
-                    self.tree_triagem_2.item("t2_" + p_id, values=(p_id, paper['Título'], paper['Autores'], paper['Ano'], "Baixando...", ext.get('status_extracao', 'Pendente')))
-                except Exception:
-                    pass
-            self.after(0, set_downloading)
-            
             success = self.download_pdf_file(paper, download_dir)
             
             with counter_lock:
@@ -3268,19 +3385,16 @@ class SystematicReviewApp(tk.Tk):
                 try:
                     self.status_var.set(f"Baixando ({current_completed}/{total}): {paper['Título'][:30]}...")
                     ext_current = paper.get('Extracao', {})
-                    self.tree_triagem_2.item("t2_" + p_id, values=(p_id, paper['Título'], paper['Autores'], paper['Ano'], ext_current.get('status_pdf'), ext_current.get('status_extracao')))
-                    if self.selected_paper_index_t2 is not None:
-                        curr_selected = self.current_session['trabalhos'][self.selected_paper_index_t2]
-                        if curr_selected['id'] == paper['id']:
-                            self.on_treeview_select_t2(None)
+                    if self.tree_triagem_2.exists("t2_" + p_id):
+                        self.tree_triagem_2.item("t2_" + p_id, values=(p_id, paper['Título'], paper['Autores'], paper['Ano'], ext_current.get('status_pdf'), ext_current.get('status_extracao')))
                 except Exception:
                     pass
             self.after(0, update_status)
             
             return success
 
-        # 8 parallel download threads
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        # 2 parallel download threads (reduced from 8 to avoid UI freezing and GIL contention)
+        with ThreadPoolExecutor(max_workers=2) as executor:
             futures = [executor.submit(download_task, paper) for paper in to_download]
             for future in as_completed(futures):
                 pass
@@ -3305,7 +3419,9 @@ class SystematicReviewApp(tk.Tk):
                 txt = page.extract_text()
                 if txt:
                     pages_text.append(f"--- PÁGINA {i+1} ---\n{txt}\n")
-            return "\n".join(pages_text)
+            full_text = "\n".join(pages_text)
+            # Clean invalid UTF-8 surrogates to prevent JSON dump errors
+            return full_text.encode('utf-8', 'ignore').decode('utf-8')
         except Exception as e:
             return f"[Erro ao ler PDF: {str(e)}]"
 
@@ -3513,35 +3629,16 @@ class SystematicReviewApp(tk.Tk):
         if updated_count > 0:
             self.after(0, self._save_unified_json_quietly)
             
-        if newly_found:
-            def extract_batch():
-                self.status_var.set(f"Extraindo texto de {len(newly_found)} novos PDFs encontrados...")
-                for p, path in newly_found:
-                    text = self.extract_text_from_pdf_file(path)
-                    p['Extracao']['texto_extraido'] = text
-                    if self.selected_paper_index_t2 is not None:
-                        curr_paper = self.current_session['trabalhos'][self.selected_paper_index_t2]
-                        if curr_paper['id'] == p['id']:
-                            def load_text(t=text):
-                                self.txt_pdf_text_t2.configure(state="normal")
-                                self.txt_pdf_text_t2.delete("1.0", tk.END)
-                                self.txt_pdf_text_t2.insert(tk.END, t)
-                                self.txt_pdf_text_t2.configure(state="disabled")
-                            self.after(0, load_text)
-                self.status_var.set("Extração de texto da varredura concluída.")
-                self.after(0, self._save_unified_json_quietly)
-            threading.Thread(target=extract_batch, daemon=True).start()
-            
         if show_message:
             messagebox.showinfo(
                 "Varredura Concluída",
-                f"Escaneamento de PDFs finalizado!\n\n"
-                f"Total de PDFs locais correspondentes: {len(local_pdfs)}\n"
-                f"Status de trabalhos atualizados: {updated_count}\n"
-                f"Novos arquivos com extração de texto iniciada: {len(newly_found)}"
+                f"Escaneamento de pasta de PDFs finalizado!\n\n"
+                f"Total de PDFs locais encontrados: {len(local_pdfs)}\n"
+                f"Status de trabalhos atualizados: {updated_count}\n\n"
+                f"O texto dos PDFs será carregado sob demanda ao selecionar cada artigo."
             )
         else:
-            self.status_var.set(f"Varredura automática: {len(local_pdfs)} PDFs locais associados.")
+            self.status_var.set(f"Varredura de PDFs: {len(local_pdfs)} arquivos associados.")
 
 
     def update_dynamic_form_t2(self, paper):
@@ -3555,10 +3652,49 @@ class SystematicReviewApp(tk.Tk):
 
             
         respostas = ext.get('respostas', {})
+        if not isinstance(respostas, dict) or not respostas:
+            respostas = ext.get('respostas_questoes', {})
         if not isinstance(respostas, dict):
             respostas = {}
             ext['respostas'] = respostas
+
+        import unicodedata
+
+        def norm_ascii(s):
+            if not s: return ""
+            return "".join(c for c in unicodedata.normalize('NFKD', str(s)).encode('ASCII', 'ignore').decode('utf-8').lower() if c.isalnum())
+
+        def get_matching_val(resp_dict, field_name, field_idx):
+            if not isinstance(resp_dict, dict) or not resp_dict:
+                return ""
+            if field_name in resp_dict:
+                return resp_dict[field_name]
             
+            # Try index matching (e.g. '0', '1', '2', '3', '4', '5')
+            if str(field_idx) in resp_dict:
+                return resp_dict[str(field_idx)]
+            if f"field_{field_idx}" in resp_dict:
+                return resp_dict[f"field_{field_idx}"]
+                
+            field_ascii = norm_ascii(field_name)
+            if field_ascii in resp_dict:
+                return resp_dict[field_ascii]
+
+            for k, v in resp_dict.items():
+                k_ascii = norm_ascii(k)
+                if k_ascii == field_ascii and v:
+                    return v
+                # Partial prefix match
+                prefix_field = field_ascii[:15]
+                if prefix_field and len(prefix_field) >= 5 and prefix_field in k_ascii and v:
+                    return v
+            return ""
+
+        self.dynamic_form_inner_frame_t2.grid_columnconfigure(0, weight=1)
+        
+        c_width = self.form_canvas_t2.winfo_width() if hasattr(self, 'form_canvas_t2') and self.form_canvas_t2.winfo_width() > 50 else 340
+        w_wrap = max(120, c_width - 25)
+
         self.dynamic_vars_t2 = {
             'respostas': {},
             'status_extracao': tk.StringVar(value=ext.get('status_extracao', 'Pendente'))
@@ -3567,54 +3703,45 @@ class SystematicReviewApp(tk.Tk):
         row_idx = 0
         
         if not self.campos_extracao:
-            ttk.Label(self.dynamic_form_inner_frame_t2, text="Nenhum campo de extração definido.\nAdicione campos no painel lateral esquerdo.", font=("Segoe UI", 9, "italic")).grid(row=row_idx, column=0, sticky="w", pady=10)
+            ttk.Label(self.dynamic_form_inner_frame_t2, text="Nenhum campo de extração definido.\nAdicione campos no painel lateral esquerdo.", font=("Segoe UI", 9, "italic"), wraplength=w_wrap).grid(row=row_idx, column=0, sticky="ew", pady=10)
             return
             
-        for field in self.campos_extracao:
-            ttk.Label(self.dynamic_form_inner_frame_t2, text=field, font=("Segoe UI", 9, "bold"), foreground=self.primary_color).grid(row=row_idx, column=0, sticky="w", pady=(5, 2))
+        for f_idx, field in enumerate(self.campos_extracao):
+            lbl_title = ttk.Label(self.dynamic_form_inner_frame_t2, text=field, font=("Segoe UI", 9, "bold"), foreground=self.primary_color, wraplength=w_wrap, justify="left")
+            lbl_title.grid(row=row_idx, column=0, sticky="ew", pady=(4, 1))
             row_idx += 1
             
-            txt_reply = scrolledtext.ScrolledText(self.dynamic_form_inner_frame_t2, wrap="word", font=("Segoe UI", 9), height=3, width=35)
-            txt_reply.grid(row=row_idx, column=0, sticky="ew", padx=10, pady=(0, 5))
+            txt_reply = scrolledtext.ScrolledText(self.dynamic_form_inner_frame_t2, wrap="word", font=("Segoe UI", 9), height=2, width=1)
+            txt_reply.grid(row=row_idx, column=0, sticky="ew", padx=2, pady=(0, 4))
             
-            val = respostas.get(field, "")
-            txt_reply.insert(tk.END, val)
+            val = get_matching_val(respostas, field, f_idx)
+            txt_reply.insert(tk.END, str(val))
             
             self.dynamic_vars_t2['respostas'][field] = txt_reply
             row_idx += 1
             
         # Observações em Triagem 2
-        ttk.Separator(self.dynamic_form_inner_frame_t2, orient="horizontal").grid(row=row_idx, column=0, sticky="ew", pady=10)
+        ttk.Separator(self.dynamic_form_inner_frame_t2, orient="horizontal").grid(row=row_idx, column=0, sticky="ew", pady=5)
         row_idx += 1
 
-        ttk.Label(self.dynamic_form_inner_frame_t2, text="Observações / Limitações Metodológicas:", font=("Segoe UI", 9, "bold"), foreground=self.primary_color).grid(row=row_idx, column=0, sticky="w", pady=2)
+        lbl_obs = ttk.Label(self.dynamic_form_inner_frame_t2, text="Observações / Limitações Metodológicas:", font=("Segoe UI", 9, "bold"), foreground=self.primary_color, wraplength=w_wrap, justify="left")
+        lbl_obs.grid(row=row_idx, column=0, sticky="ew", pady=1)
         row_idx += 1
 
-        self.txt_observacoes_t2 = scrolledtext.ScrolledText(self.dynamic_form_inner_frame_t2, wrap="word", font=("Segoe UI", 9), height=4, width=35)
-        self.txt_observacoes_t2.grid(row=row_idx, column=0, sticky="ew", padx=10, pady=(0, 5))
+        self.txt_observacoes_t2 = scrolledtext.ScrolledText(self.dynamic_form_inner_frame_t2, wrap="word", font=("Segoe UI", 9), height=3, width=1)
+        self.txt_observacoes_t2.grid(row=row_idx, column=0, sticky="ew", padx=2, pady=(0, 4))
         val_obs = ext.get('observacoes', paper.get('Observacoes', ''))
         self.txt_observacoes_t2.insert(tk.END, val_obs)
         self.txt_observacoes_t2.bind("<FocusOut>", lambda e: self.save_current_paper_extraction())
         self.txt_observacoes_t2.bind("<KeyRelease>", lambda e: self.save_current_paper_extraction())
         row_idx += 1
 
-        ttk.Label(self.dynamic_form_inner_frame_t2, text="Status da Extração:", font=("Segoe UI", 9, "bold")).grid(row=row_idx, column=0, sticky="w", pady=2)
+        lbl_st = ttk.Label(self.dynamic_form_inner_frame_t2, text="Status da Extração:", font=("Segoe UI", 9, "bold"), wraplength=w_wrap, justify="left")
+        lbl_st.grid(row=row_idx, column=0, sticky="ew", pady=1)
         row_idx += 1
 
         cb_status = ttk.Combobox(self.dynamic_form_inner_frame_t2, textvariable=self.dynamic_vars_t2['status_extracao'], values=["Pendente", "Concluída"], state="readonly", width=15)
-        cb_status.grid(row=row_idx, column=0, sticky="w", pady=2)
-        row_idx += 1
-
-        btn_action_frame_t2 = ttk.Frame(self.dynamic_form_inner_frame_t2)
-        btn_action_frame_t2.grid(row=row_idx, column=0, sticky="ew", pady=(15, 5))
-        btn_action_frame_t2.columnconfigure(0, weight=1)
-        btn_action_frame_t2.columnconfigure(1, weight=1)
-
-        self.btn_gemini_t2 = ttk.Button(btn_action_frame_t2, text="✨ Parceiro de Extração (Gemini)", style="Secondary.TButton", command=self.run_gemini_extracao_partner)
-        self.btn_gemini_t2.grid(row=0, column=0, sticky="ew", padx=(0, 5))
-
-        btn_save = ttk.Button(btn_action_frame_t2, text="Salvar Extração e Próximo", style="Primary.TButton", command=self.save_extraction_and_next_t2)
-        btn_save.grid(row=0, column=1, sticky="ew")
+        cb_status.grid(row=row_idx, column=0, sticky="w", pady=(0, 5))
         row_idx += 1
 
     def save_current_paper_extraction(self):
@@ -4216,11 +4343,14 @@ class SystematicReviewApp(tk.Tk):
             'decisao': tk.StringVar(value=paper.get('Decisao', 'Pendente'))
         }
         
+        self.dynamic_form_inner_frame.grid_columnconfigure(0, weight=1)
+        w_wrap1 = max(120, self.form_container_frame.winfo_width() - 25) if hasattr(self, 'form_container_frame') and self.form_container_frame.winfo_width() > 50 else 320
+
         row_idx = 0
         
         # 1. Inclusion Criteria Header & Checklist
         if self.inclusion_criteria:
-            ttk.Label(self.dynamic_form_inner_frame, text="Critérios de Inclusão:", font=("Segoe UI", 9, "bold"), foreground=self.primary_color).grid(row=row_idx, column=0, sticky="w", pady=(5, 2))
+            ttk.Label(self.dynamic_form_inner_frame, text="Critérios de Inclusão:", font=("Segoe UI", 9, "bold"), foreground="#008000", wraplength=w_wrap1, justify="left").grid(row=row_idx, column=0, sticky="ew", pady=(5, 2))
             row_idx += 1
             for c in self.inclusion_criteria:
                 val = paper['Criterios'].get(c, False)
@@ -4231,7 +4361,7 @@ class SystematicReviewApp(tk.Tk):
                     text=c, 
                     variable=var, 
                     command=self.save_current_paper_decisions, 
-                    wraplength=0,
+                    wraplength=w_wrap1,
                     justify="left",
                     anchor="w",
                     bg="#f0f0f0",
@@ -4239,12 +4369,12 @@ class SystematicReviewApp(tk.Tk):
                     bd=0,
                     highlightthickness=0
                 )
-                cb.grid(row=row_idx, column=0, sticky="w", padx=10, pady=1)
+                cb.grid(row=row_idx, column=0, sticky="ew", padx=5, pady=1)
                 row_idx += 1
                 
         # 2. Exclusion Criteria Header & Checklist
         if self.exclusion_criteria:
-            ttk.Label(self.dynamic_form_inner_frame, text="Critérios de Exclusão:", font=("Segoe UI", 9, "bold"), foreground="#c00000").grid(row=row_idx, column=0, sticky="w", pady=(8, 2))
+            ttk.Label(self.dynamic_form_inner_frame, text="Critérios de Exclusão:", font=("Segoe UI", 9, "bold"), foreground="#c00000", wraplength=w_wrap1, justify="left").grid(row=row_idx, column=0, sticky="ew", pady=(8, 2))
             row_idx += 1
             for c in self.exclusion_criteria:
                 val = paper['Criterios'].get(c, False)
@@ -4255,7 +4385,7 @@ class SystematicReviewApp(tk.Tk):
                     text=c, 
                     variable=var, 
                     command=self.save_current_paper_decisions, 
-                    wraplength=0,
+                    wraplength=w_wrap1,
                     justify="left",
                     anchor="w",
                     bg="#f0f0f0",
@@ -4263,46 +4393,46 @@ class SystematicReviewApp(tk.Tk):
                     bd=0,
                     highlightthickness=0
                 )
-                cb.grid(row=row_idx, column=0, sticky="w", padx=10, pady=1)
+                cb.grid(row=row_idx, column=0, sticky="ew", padx=5, pady=1)
                 row_idx += 1
 
         # 3. Custom Questions
         if self.triagem_questions:
-            ttk.Label(self.dynamic_form_inner_frame, text="Perguntas Analíticas:", font=("Segoe UI", 9, "bold")).grid(row=row_idx, column=0, sticky="w", pady=(8, 2))
+            ttk.Label(self.dynamic_form_inner_frame, text="Perguntas Analíticas:", font=("Segoe UI", 9, "bold"), wraplength=w_wrap1, justify="left").grid(row=row_idx, column=0, sticky="ew", pady=(8, 2))
             row_idx += 1
             for q in self.triagem_questions:
-                ttk.Label(self.dynamic_form_inner_frame, text=q, font=("Segoe UI", 9)).grid(row=row_idx, column=0, sticky="ew", padx=10, pady=(2, 0))
+                ttk.Label(self.dynamic_form_inner_frame, text=q, font=("Segoe UI", 9), wraplength=w_wrap1, justify="left").grid(row=row_idx, column=0, sticky="ew", padx=5, pady=(2, 0))
                 row_idx += 1
                 val = paper['Perguntas'].get(q, "")
                 var = tk.StringVar(value=val)
                 self.dynamic_vars['perguntas'][q] = var
-                ent = ttk.Entry(self.dynamic_form_inner_frame, textvariable=var, width=30)
-                ent.grid(row=row_idx, column=0, sticky="ew", padx=10, pady=(0, 4))
+                ent = ttk.Entry(self.dynamic_form_inner_frame, textvariable=var, width=1)
+                ent.grid(row=row_idx, column=0, sticky="ew", padx=5, pady=(0, 4))
                 # Auto-save questions on edit
                 ent.bind("<FocusOut>", lambda e: self.save_current_paper_decisions())
                 ent.bind("<KeyRelease>", lambda e: self.save_current_paper_decisions())
                 row_idx += 1
                 
         # 4. Observações / Justificativa
-        ttk.Separator(self.dynamic_form_inner_frame, orient="horizontal").grid(row=row_idx, column=0, sticky="ew", pady=10)
+        ttk.Separator(self.dynamic_form_inner_frame, orient="horizontal").grid(row=row_idx, column=0, sticky="ew", pady=5)
         row_idx += 1
 
-        ttk.Label(self.dynamic_form_inner_frame, text="Observações / Justificativa:", font=("Segoe UI", 9, "bold"), foreground=self.primary_color).grid(row=row_idx, column=0, sticky="w", pady=2)
+        ttk.Label(self.dynamic_form_inner_frame, text="Observações / Justificativa:", font=("Segoe UI", 9, "bold"), foreground=self.primary_color, wraplength=w_wrap1, justify="left").grid(row=row_idx, column=0, sticky="ew", pady=2)
         row_idx += 1
 
-        self.txt_observacoes = scrolledtext.ScrolledText(self.dynamic_form_inner_frame, wrap="word", font=("Segoe UI", 9), height=4, width=30)
-        self.txt_observacoes.grid(row=row_idx, column=0, sticky="ew", padx=5, pady=(0, 5))
+        self.txt_observacoes = scrolledtext.ScrolledText(self.dynamic_form_inner_frame, wrap="word", font=("Segoe UI", 9), height=3, width=1)
+        self.txt_observacoes.grid(row=row_idx, column=0, sticky="ew", padx=2, pady=(0, 5))
         self.txt_observacoes.insert(tk.END, paper.get('Observacoes', ''))
         self.txt_observacoes.bind("<FocusOut>", lambda e: self.save_current_paper_decisions())
         self.txt_observacoes.bind("<KeyRelease>", lambda e: self.save_current_paper_decisions())
         row_idx += 1
 
         # 5. Decision Dropdown & Action buttons
-        ttk.Label(self.dynamic_form_inner_frame, text="Decisão do Trabalho:", font=("Segoe UI", 9, "bold")).grid(row=row_idx, column=0, sticky="w", pady=2)
+        ttk.Label(self.dynamic_form_inner_frame, text="Decisão do Trabalho:", font=("Segoe UI", 9, "bold"), wraplength=w_wrap1, justify="left").grid(row=row_idx, column=0, sticky="ew", pady=2)
         row_idx += 1
 
-        cb_dec = ttk.Combobox(self.dynamic_form_inner_frame, textvariable=self.dynamic_vars['decisao'], values=["Pendente", "Incluído", "Excluído"], state="readonly", width=15)
-        cb_dec.grid(row=row_idx, column=0, sticky="w", pady=2)
+        cb_dec = ttk.Combobox(self.dynamic_form_inner_frame, textvariable=self.dynamic_vars['decisao'], values=["Pendente", "Incluído", "Excluído"], state="readonly", width=1)
+        cb_dec.grid(row=row_idx, column=0, sticky="ew", pady=2)
         cb_dec.bind("<<ComboboxSelected>>", lambda e: self.save_current_paper_decisions())
         row_idx += 1
 

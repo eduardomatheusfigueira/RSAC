@@ -33,8 +33,12 @@ except ImportError:
         return _p if _p.is_absolute() else _BASE / _p
 
 # Configurations — resolved relative to project root
-JSON_PATH = str(resolve_path(os.path.join("Revisão teste", "triagem2_sessao.json")))
-OUTPUT_PDF_DIR = str(resolve_path(os.path.join("Revisão teste", "pdfs")))
+default_json = resolve_path(os.path.join("causalidade", "revisao_sistematica2.json"))
+if not default_json.exists():
+    default_json = resolve_path(os.path.join("Revisão teste", "triagem2_sessao.json"))
+
+JSON_PATH = str(default_json)
+OUTPUT_PDF_DIR = str(resolve_path(os.path.join(default_json.parent, "pdfs")))
 
 # Request Headers to mimic a browser and avoid basic anti-bot blocks
 HEADERS = {
@@ -60,7 +64,8 @@ def extract_text_from_pdf(pdf_path):
             txt = page.extract_text()
             if txt:
                 pages_text.append(f"--- PÁGINA {i+1} ---\n{txt}\n")
-        return "\n".join(pages_text)
+        full_text = "\n".join(pages_text)
+        return full_text.encode('utf-8', 'ignore').decode('utf-8')
     except Exception as e:
         print(f"  [Erro] Falha ao extrair texto do PDF {os.path.basename(pdf_path)}: {e}")
         return ""
@@ -198,6 +203,39 @@ def resolve_pdf_url(url):
         res = resolve_maxwell_pdf_url(url)
         if res: return res
         
+    # Generic HTML Landing Page Scraper Fallback
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=12, verify=False, allow_redirects=True)
+        if r.status_code == 200:
+            content_type = r.headers.get('Content-Type', '').lower()
+            if 'application/pdf' in content_type or r.content.startswith(b'%PDF'):
+                return r.url
+            
+            html = r.text
+            links = re.findall(r'href=["\']([^"\']+)["\']', html, re.IGNORECASE)
+            
+            final_handle_match = re.search(r'handle/([^/\?]+)/([^/\?]+)', r.url)
+            handle_id = final_handle_match.group(2) if final_handle_match else ""
+
+            candidates = []
+            for l in links:
+                l_lower = l.lower()
+                if any(bad in l_lower for bad in ['thumbnail', 'license', 'policy', 'politica', 'logo', 'css', 'js', '.png', '.jpg', '.jpeg', 'tutorial', 'guia']):
+                    continue
+                if ('bitstream' in l_lower or '/retrieve/' in l_lower or '/download/' in l_lower or '.pdf' in l_lower):
+                    score = 0
+                    if handle_id and handle_id in l_lower: score += 10
+                    if '.pdf' in l_lower: score += 5
+                    if 'bitstream' in l_lower: score += 3
+                    if 'sequence=1' in l_lower or 'isallowed=y' in l_lower: score += 2
+                    candidates.append((score, l))
+                    
+            if candidates:
+                candidates.sort(key=lambda x: x[0], reverse=True)
+                return urllib.parse.urljoin(r.url, candidates[0][1])
+    except Exception:
+        pass
+
     # Fallback to original URL
     return url
 
@@ -221,7 +259,11 @@ def download_and_process():
         print(f"[ERRO] Falha ao ler arquivo JSON: {e}")
         return
         
-    trabalhos = session.get('trabalhos', [])
+    if 'triagem' in session and isinstance(session['triagem'], dict) and 'trabalhos' in session['triagem']:
+        trabalhos = session['triagem']['trabalhos']
+    else:
+        trabalhos = session.get('trabalhos', [])
+
     # Filter papers where Decisao == 'Incluído'
     included = [t for t in trabalhos if t.get('Decisao') == 'Incluído']
     total_included = len(included)
