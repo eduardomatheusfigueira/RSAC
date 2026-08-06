@@ -1,6 +1,6 @@
 {
-    "db_path": "C:/Users/eduardo.figueira/Downloads/RSAC/causalidade/2_bdtd_metadata.db",
-    "export_path": "C:/Users/eduardo.figueira/Downloads/RSAC/causalidade/2_bdtd_resultados.xlsx",
+    "db_path": "C:/Users/eduardo.figueira/Downloads/dados publicos/2_bdtd_metadata.db",
+    "export_path": "C:/Users/eduardo.figueira/Downloads/dados publicos/2_bdtd_resultados.xlsx",
     "limit": null,
     "delay": 2.5,
     "search_type": "AllFields",
@@ -8,16 +8,11 @@
     "filters": {
         "format": "",
         "institution": "",
-        "publishDate": "[2000 TO 2024]",
-        "language": "Português"
+        "publishDate": "[2014 TO 2024]",
+        "language": "Português, Inglês, Espanhol"
     },
-    "scrape_details": true,
+    "scrape_details": false,
     "keywords": [
-        "\"causalidade\" AND \"políticas públicas\"",
-        "\"causalidade\" AND \"desenvolvimento regional\"",
-        "\"inferência causal\" AND \"políticas públicas\"",
-        "\"inferência causal\" AND \"desenvolvimento regional\"",
-        "\"descoberta causal\" AND \"políticas públicas\"",
-        "\"descoberta causal\" AND \"desenvolvimento regional\""
+        "\"causalidade\" AND \"saneamento\""
     ]
 }

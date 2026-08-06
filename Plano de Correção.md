@@ -1,610 +1,576 @@
-# Plano de Consolidação - RSAC (Revisão Sistemática Assistida por Computador)
+# Análise Profissional e Plano de Refatoração do `main.py`
 
-**Data de Análise:** Dezembro 2024  
-**Versão do Sistema:** 1.0  
-**Objetivo:** Identificar bugs, inconsistências estruturais e pontos de melhoria para consolidação do funcionamento atual da aplicação.
+Analisei o código em profundidade. É um MVP funcional e ambicioso, mas carrega **dívida técnica significativa** que compromete manutenibilidade, testabilidade e escalabilidade. Abaixo está o diagnóstico e o plano de profissionalização.
 
 ---
 
-## Sumário Executivo
+## 1. Diagnóstico: Principais Problemas Identificados
 
-Este documento apresenta uma análise técnica detalhada da arquitetura e implementação atual do RSAC, identificando:
-- Bugs conhecidos e potenciais
-- Inconsistências arquiteturais
-- Pontos de fragilidade na estrutura de código
-- Recomendações de refatoração e consolidação
+### 🔴 Problemas Críticos de Arquitetura
 
-O sistema é composto por **6.047 linhas de código** no módulo principal (`config_app/main.py`), além de múltiplos scripts auxiliares e harvesters especializados.
+| # | Problema | Impacto |
+|---|----------|---------|
+| 1 | **God Class** (`SystematicReviewApp` com ~5000 linhas) | Viola SRP; impossível testar; qualquer mudança gera regressão |
+| 2 | **Acoplamento UI ↔ Lógica** (`self.ent_bdtd_db.get()` espalhado em métodos de negócio) | Lógica não reutilizável; testes unitários inviáveis |
+| 3 | **Estado global disperso** (`current_session`, `keywords`, `triagem_csv_files`, `dynamic_vars_t2`) | Múltiplas fontes de verdade → bugs sutis de sincronização |
+| 4 | **Persistência acoplada ao JSON** | Trocar para SQLite/PostgreSQL exigiria reescrever 40% do código |
+| 5 | **Threading ad-hoc** (`threading.Thread` direto em 10+ lugares) | Race conditions, sem cancelamento estruturado, sem retry |
+| 6 | **Parsing de JSON heurístico** (`parse_json_from_response`) | Frágil a variações do Gemini; sem fallback tipado |
+| 7 | **Cache `_pdf_text_cache` ilimitado** | Memory leak em sessões longas (1000+ papers) |
+| 8 | **Zero testes automatizados** | Regressões inevitáveis a cada refactor |
+
+### 🟡 Problemas de Qualidade
+
+- **Strings hardcoded** (`"bdtd_harvester"`, `"Não Informado"`, paths relativos)
+- **Type hints inconsistentes** (alguns métodos têm, outros não)
+- **Exceções genéricas** (`except Exception` em 90% dos casos)
+- **Logging reativo** (sem correlation ID, sem contexto estruturado)
+- **Configuração espalhada** (Gemini keys, paths, delays em lugares diferentes)
 
 ---
 
-## 1. Arquitetura Atual do Sistema
-
-### 1.1 Estrutura de Diretórios
+## 2. Arquitetura Proposta: Clean Architecture Adaptada
 
 ```
-RSAC/
-├── config_app/                          # Núcleo da aplicação GUI
-│   ├── main.py                          # 6.047 linhas - Aplicação principal Tkinter
-│   ├── bdtd_harvester/                  # Configs JSON dos harvesters
-│   ├── scielo_harvester/
-│   └── openalex_harvester/
-├── bdtd_harvester/                      # Coletor BDTD (Teses/Dissertações)
-├── scielo_harvester/                    # Coletor SciELO
-├── openalex_harvester/                  # Coletor OpenAlex
-├── pubmed_harvester/                    # Coletor PubMed
-├── scopus_harvester/                    # Coletor Scopus
-├── consolidar_e_deduplicar.py           # Script de consolidação (335 linhas)
-├── baixar_pdfs.py                       # Download automatizado (362 linhas)
-├── baixar_sucesso.py                    # Pós-processamento PDFs bem-sucedidos (300 linhas)
-├── baixar_failed_pdfs.py                # Gestão de PDFs falhos (241 linhas)
-├── process_manual_pdf.py                # Processamento manual (125 linhas)
-├── ArticleSearcherEduardo.spec          # Spec PyInstaller
-├── ConfiguradorRevisao.spec             # Spec PyInstaller
-└── Iniciar_Configurador.bat             # Launcher Windows
-```
-
-### 1.2 Componentes Principais
-
-| Componente | Linhas | Responsabilidade | Status |
-|------------|--------|------------------|---------|
-| `config_app/main.py` | 6.047 | Interface GUI, lógica de negócio, integração harvesters | ⚠️ Crítico |
-| `consolidar_e_deduplicar.py` | 335 | Unificação e deduplicação de registros | ✅ Estável |
-| `baixar_pdfs.py` | 362 | Download em massa de PDFs | ⚠️ Atenção |
-| `baixar_sucesso.py` | 300 | Extração dados PDFs baixados | ⚠️ Atenção |
-| `baixar_failed_pdfs.py` | 241 | Retry e gestão de falhas | ✅ Estável |
-| `process_manual_pdf.py` | 125 | Upload manual de PDFs | ✅ Estável |
-| Harvesters (5x) | ~400-600 cada | Coleta específica por base | ✅ Estável |
-
----
-
-## 2. Bugs Identificados e Pontos Críticos
-
-### 2.1 BUG CRÍTICO #1: Monolito no `main.py`
-
-**Problema:**  
-O arquivo `config_app/main.py` concentra **6.047 linhas** de código em um único módulo, violando princípios SOLID (Single Responsibility Principle).
-
-**Sintomas:**
-- Dificuldade extrema de manutenção e teste unitário
-- Acoplamento forte entre interface GUI e lógica de negócio
-- Risco elevado de regressão em modificações
-- Tempo de carregamento inicial lento
-
-**Impacto:** ALTO  
-**Prioridade:** CRÍTICA
-
-**Solução Recomendada:**
-```python
-# Estrutura ideal pós-refatoração:
-config_app/
-├── main.py (apenas bootstrap, <200 linhas)
-├── gui/
-│   ├── __init__.py
-│   ├── protocol_screen.py      # Tela de protocolo
-│   ├── search_config_screen.py # Tela configuração busca
-│   ├── screening_screen.py     # Tela de triagem
-│   └── extraction_screen.py    # Tela de extração
+src/
+├── main.py                          # Entry point mínimo
+├── app/
+│   ├── application.py               # Orquestrador da aplicação
+│   └── container.py                 # Dependency Injection
 ├── core/
-│   ├── __init__.py
-│   ├── protocol_manager.py     # Lógica de protocolo
-│   ├── gemini_ai.py            # Integração API Gemini
-│   ├── session_manager.py      # Gestão sessões JSON
-│   └── export_manager.py       # Exportação Excel/JSON
-└── utils/
-    ├── text_sanitizer.py
-    ├── path_resolver.py
-    └── validators.py
+│   ├── domain/                      # Entidades puras (sem frameworks)
+│   │   ├── entities.py              # Paper, Protocol, Criterion
+│   │   ├── events.py                # Domain events (ScreeningCompleted, etc.)
+│   │   └── exceptions.py            # DomainException hierarchy
+│   ├── services/                    # Casos de uso
+│   │   ├── screening_service.py
+│   │   ├── extraction_service.py
+│   │   ├── harvest_orchestrator.py
+│   │   └── ai_partner_service.py
+│   └── ports/                       # Interfaces (contratos)
+│       ├── repositories.py
+│       ├── ai_client.py
+│       └── harvester.py
+├── infrastructure/
+│   ├── persistence/
+│   │   ├── json_project_repo.py
+│   │   └── filesystem_pdf_repo.py
+│   ├── ai/
+│   │   ├── gemini_client.py         # REST + SDK com fallback
+│   │   ├── response_parser.py       # Parsing robusto de JSON
+│   │   └── key_rotation.py          # Rotação de chaves com state machine
+│   ├── harvesters/
+│   │   └── harvester_adapter.py     # Adapter pattern para os 5 harvesters
+│   └── utils/
+│       ├── event_bus.py             # Pub/Sub tipado
+│       ├── lru_cache.py             # Cache com limite
+│       └── text_sanitizer.py
+├── presentation/
+│   ├── app_window.py                # Janela principal (thin)
+│   ├── viewmodels/                  # Estado reativo
+│   │   ├── base_viewmodel.py
+│   │   ├── protocol_vm.py
+│   │   ├── screening_vm.py
+│   │   └── extraction_vm.py
+│   ├── views/                       # Telas declarativas
+│   │   ├── protocol_view.py
+│   │   ├── screening_view.py
+│   │   └── extraction_view.py
+│   └── widgets/                     # Componentes reutilizáveis
+└── tests/
+    ├── unit/                        # Testes de serviços/repos
+    ├── integration/                 # Testes de fluxos
+    └── fixtures/
 ```
+
+### Princípios Norteadores
+
+1. **Dependency Rule:** `presentation` → `core` ← `infrastructure`. O core não conhece Tkinter.
+2. **Event-Driven:** Views emitem eventos → ViewModels reagem → Services executam → Events publicados → Views atualizam.
+3. **Repository Pattern:** Persistência abstraída. Hoje JSON, amanhã SQLite.
+4. **Command Pattern:** Toda ação do usuário vira um Command (possibilita undo/redo).
+5. **Fail-Fast Validation:** Pydantic models em todas as fronteiras.
 
 ---
 
-### 2.2 BUG #2: Hardcoding de Paths Relativos
+## 3. Exemplos Concretos de Código Refatorado
 
-**Localização:** `config_app/main.py`, múltiplas ocorrências  
-**Descrição:** Caminhos relativos fixos como `"openalex_harvester/openalex_metadata.db"` falham quando:
-- O script é executado de diretórios diferentes
-- A aplicação é empacotada com PyInstaller
-- Usuário move a pasta do projeto
+### 3.1. Entidades de Domínio (purás, testáveis)
 
-**Código Problemático:**
 ```python
-# Exemplo encontrado (linha ~100-150)
-sources_to_load = {
-    "OpenAlex": {
-        "db": ["openalex_metadata.db", "openalex_harvester/openalex_metadata.db"],
-        ...
-    }
-}
-```
+# core/domain/entities.py
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Optional
 
-**Impacto:** MÉDIO  
-**Prioridade:** ALTA
+class Decision(str, Enum):
+    PENDING = "Pendente"
+    INCLUDED = "Incluído"
+    EXCLUDED = "Excluído"
 
-**Solução:**
-```python
-import os
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATHS = {
-    "OpenAlex": [
-        BASE_DIR / "openalex_metadata.db",
-        BASE_DIR / "openalex_harvester" / "openalex_metadata.db"
-    ]
-}
-```
-
----
-
-### 2.3 BUG #3: Falta de Validação de Schema nos JSONs de Configuração
-
-**Localização:** Todos os harvesters (`*_harvester.py`)  
-**Descrição:** Os arquivos JSON de configuração (`bdtd_config.json`, `scielo_config.json`, etc.) são lidos sem validação de schema.
-
-**Risco:**
-- Campos obrigatórios ausentes causam `KeyError` em runtime
-- Tipos incorretos (ex: string ao invés de int) não são detectados
-- Erros só aparecem durante execução da coleta
-
-**Impacto:** MÉDIO  
-**Prioridade:** MÉDIA
-
-**Solução:**
-```python
-from pydantic import BaseModel, Field, validator
-
-class HarvesterConfig(BaseModel):
-    db_path: str = Field(..., min_length=1)
-    export_path: str
-    limit: int | None = None
-    delay: float = Field(default=3.0, gt=0)
-    keywords: list[str] = Field(..., min_items=1)
+@dataclass(frozen=True)
+class Paper:
+    """Entidade imutável. Toda modificação retorna nova instância."""
+    id: str
+    title: str
+    authors: str
+    year: str
+    source: str
+    research_type: str
+    institution: str
+    abstract: str
+    download_url: str
+    decision: Decision = Decision.PENDING
+    inclusion_criteria: dict[str, bool] = field(default_factory=dict)
+    exclusion_criteria: dict[str, bool] = field(default_factory=dict)
+    questions: dict[str, str] = field(default_factory=dict)
+    observations: str = ""
     
-    @validator('delay')
-    def delay_must_be_positive(cls, v):
-        if v <= 0:
-            raise ValueError('Delay deve ser positivo')
-        return v
-
-# Uso:
-config = HarvesterConfig(**json.load(open(config_file)))
-```
-
----
-
-### 2.4 BUG #4: Tratamento de Exceção Genérico nos Harvesters
-
-**Localização:** `scielo_harvester/scielo_harvester.py`, `openalex_harvester/openalex_harvester.py`  
-**Descrição:** Blocos `try-except Exception` genéricos mascaram erros reais.
-
-**Exemplo:**
-```python
-try:
-    # scraping logic
-except Exception as e:
-    logger.warning(f"Could not read: {e}")
-    return pd.DataFrame()
-```
-
-**Problemas:**
-- Não diferencia erro de rede de erro de parsing
-- Dificulta debugging
-- Pode esconder bugs críticos de lógica
-
-**Impacto:** MÉDIO  
-**Prioridade:** MÉDIA
-
-**Solução:**
-```python
-from requests.exceptions import RequestException, Timeout
-from bs4 import BeautifulSoupSoupError
-
-try:
-    response = requests.get(url, timeout=30)
-    response.raise_for_status()
-except Timeout:
-    logger.error("Timeout na requisição")
-    raise
-except RequestException as e:
-    logger.error(f"Erro HTTP: {e}")
-    raise
-except BeautifulSoupSoupError as e:
-    logger.error(f"Erro no parsing HTML: {e}")
-    raise
-```
-
----
-
-### 2.5 BUG #5: Vazamento de Memória em Loops de Coleta
-
-**Localização:** Todos os harvesters  
-**Descrição:** DataFrames pandas são acumulados em listas sem garbage collection explícita durante loops longos.
-
-**Cenário:** Coleta de 1000+ registros pode consumir >2GB RAM.
-
-**Impacto:** BAIXO (em máquinas modernas)  
-**Prioridade:** BAIXA
-
-**Solução:**
-```python
-import gc
-
-for page in range(total_pages):
-    records = fetch_page(page)
-    process_and_save(records)
+    def with_decision(self, decision: Decision) -> "Paper":
+        from dataclasses import replace
+        return replace(self, decision=decision)
     
-    # Liberação explícita
-    del records
-    if page % 50 == 0:
-        gc.collect()
-```
+    def with_criterion(self, criterion: str, value: bool, is_exclusion: bool = False) -> "Paper":
+        from dataclasses import replace
+        target = dict(self.exclusion_criteria if is_exclusion else self.inclusion_criteria)
+        target[criterion] = value
+        if is_exclusion:
+            return replace(self, exclusion_criteria=target)
+        return replace(self, inclusion_criteria=target)
 
----
-
-### 2.6 BUG #6: Concorrência em Acesso a Arquivos SQLite
-
-**Localização:** `consolidar_e_deduplicar.py`, harvesters  
-**Descrição:** Múltiplos processos podem tentar escrever no mesmo banco SQLite simultaneamente.
-
-**Sintoma:** Erro `database is locked` esporádico.
-
-**Impacto:** BAIXO  
-**Prioridade:** BAIXA
-
-**Solução:**
-```python
-import sqlite3
-from contextlib import contextmanager
-
-@contextmanager
-def get_db_connection(db_path, timeout=30):
-    conn = sqlite3.connect(db_path, timeout=timeout, isolation_level='DEFERRED')
-    conn.execute('PRAGMA journal_mode=WAL')
-    try:
-        yield conn
-    finally:
-        conn.close()
-```
-
----
-
-### 2.7 BUG #7: Falta de Logging Estruturado
-
-**Localização:** Todo o código  
-**Descrição:** Logs são strings soltas sem contexto estruturado.
-
-**Problema:**
-- Impossível filtrar logs por nível/componente dinamicamente
-- Dificuldade de análise post-mortem
-- Sem correlação entre eventos distribuídos
-
-**Impacto:** BAIXO  
-**Prioridade:** BAIXA
-
-**Solução:**
-```python
-import structlog
-
-logger = structlog.get_logger()
-
-logger.info(
-    "harvest_started",
-    source="SciELO",
-    keywords=["planejamento urbano"],
-    limit=50,
-    request_id="abc123"
-)
-```
-
----
-
-### 2.8 BUG #8: Dependência Implícita do Ambiente Windows
-
-**Localização:** `config_app/main.py` (linhas 10-17)  
-**Descrição:** Código de DPI awareness e paths com backslash hardcodado.
-
-```python
-ctypes.windll.shcore.SetProcessDpiAwareness(1)  # Falha no Linux/macOS
-```
-
-**Impacto:** MÉDIO  
-**Prioridade:** ALTA (para suporte multi-plataforma)
-
-**Solução:**
-```python
-import sys
-
-if sys.platform == "win32":
-    import ctypes
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
-    except Exception:
-        pass
-```
-
----
-
-### 2.9 BUG #9: Ausência de Testes Automatizados
-
-**Localização:** Todo o projeto  
-**Descrição:** Não há nenhum arquivo de teste (`test_*.py` ou `*_test.py`).
-
-**Risco:**
-- Regressões não detectadas
-- Refatorações arriscadas
-- Dificuldade de onboarding de novos desenvolvedores
-
-**Impacto:** ALTO  
-**Prioridade:** CRÍTICA
-
-**Solução Mínima Viável:**
-```bash
-# Estrutura recomendada
-tests/
-├── __init__.py
-├── test_protocol_manager.py
-├── test_deduplication.py
-├── test_harvesters.py
-└── conftest.py
-```
-
-```python
-# tests/test_deduplication.py
-import pytest
-from consolidar_e_deduplicar import normalize_title, clean_doi
-
-def test_normalize_title_removes_accents():
-    assert normalize_title("Planejamento Urbano") == "planejamentourbano"
+@dataclass
+class ScreeningSession:
+    """Agregado raiz da triagem."""
+    papers: list[Paper]
+    inclusion_criteria: list[str]
+    exclusion_criteria: list[str]
+    questions: list[str]
+    created_at: datetime = field(default_factory=datetime.now)
     
-def test_clean_doi_extracts_from_url():
-    doi = "https://doi.org/10.1590/S0102-88392020000100001"
-    assert clean_doi(doi) == "10.1590/s0102-88392020000100001"
+    def paper_by_id(self, paper_id: str) -> Optional[Paper]:
+        return next((p for p in self.papers if p.id == paper_id), None)
+    
+    def replace_paper(self, updated: Paper) -> None:
+        for i, p in enumerate(self.papers):
+            if p.id == updated.id:
+                self.papers[i] = updated
+                return
+        raise ValueError(f"Paper {updated.id} not found")
 ```
 
----
-
-### 2.10 BUG #10: Documentação Desatualizada
-
-**Localização:** `README.md`, `Procedimento_Uso_Sistema_Revisao.md`  
-**Descrição:** Referências a caminhos absolutos do desenvolvedor original.
-
-**Exemplo:**
-```markdown
-"C:\\Users\\eduardo.figueira\\Documents\\Sistema de Revisão da Literatura"
-```
-
-**Impacto:** BAIXO  
-**Prioridade:** BAIXA
-
-**Solução:** Substituir por paths relativos ou variáveis de ambiente.
-
----
-
-## 3. Inconsistências Estruturais
-
-### 3.1 INCONSISTÊNCIA #1: Duplicação de Harvesters
-
-**Problema:** Existem duas cópias de cada harvester:
-- `/workspace/scielo_harvester/scielo_harvester.py`
-- `/workspace/config_app/scielo_harvester/` (apenas configs JSON)
-
-**Risco:** Dessincronização de versões, bugs corrigidos em um local mas não no outro.
-
-**Solução:** Manter harvesters em único local e importar via `sys.path`.
-
----
-
-### 3.2 INCONSISTÊNCIA #2: Formatos de Saída Heterogêneos
-
-**Problema:** Cada harvester exporta em formatos diferentes:
-- BDTD: SQLite + XLSX
-- SciELO: SQLite + CSV + XLSX
-- OpenAlex: SQLite apenas
-- Scopus: XLSX
-
-**Impacto:** Complexidade desnecessária no script de consolidação.
-
-**Solução:** Padronizar saída única (SQLite + JSON Lines).
-
----
-
-### 3.3 INCONSISTÊNCIA #3: Nomenclatura de Variáveis
-
-**Problema:** Mistura de inglês e português no código:
+### 3.2. Domain Events (desacoplamento)
 
 ```python
-# config_app/main.py
-def run_harvest(...):        # Inglês
-    ...
+# core/domain/events.py
+from dataclasses import dataclass
+from core.domain.entities import Paper
+
+@dataclass(frozen=True)
+class ScreeningRequested:
+    paper_id: str
+
+@dataclass(frozen=True)
+class ScreeningCompleted:
+    paper: Paper
+    suggested_by_ai: bool = False
+
+@dataclass(frozen=True)
+class BatchScreeningProgress:
+    current: int
+    total: int
+    paper_id: str
     
-# consolidar_e_deduplicar.py
-def carregar_dados(...):     # Português (comentários)
-    ...
+@dataclass(frozen=True)
+class HarvestStarted:
+    source: str
+    
+@dataclass(frozen=True)
+class HarvestCompleted:
+    source: str
+    records_saved: int
 ```
 
-**Solução:** Adotar inglês como língua oficial do código (padrão indústria).
-
----
-
-## 4. Pontos de Melhoria Estrutural
-
-### 4.1 MELHORIA #1: Implementar Pattern Repository
-
-**Objetivo:** Abstrair acesso a dados (SQLite, CSV, JSON).
+### 3.3. Event Bus Tipado
 
 ```python
-from abc import ABC, abstractmethod
-
-class DataRepository(ABC):
-    @abstractmethod
-    def save(self, records: list[dict]) -> None:
-        pass
-    
-    @abstractmethod
-    def load(self, filters: dict = None) -> list[dict]:
-        pass
-
-class SQLiteRepository(DataRepository):
-    def __init__(self, db_path: str, table: str):
-        self.db_path = db_path
-        self.table = table
-    
-    def save(self, records):
-        # implementação
-        pass
-```
-
----
-
-### 4.2 MELHORIA #2: Adicionar Progresso Assíncrono na GUI
-
-**Problema:** GUI congela durante coletas longas.
-
-**Solução:** Usar `threading` ou `asyncio` com callbacks de progresso.
-
-```python
+# infrastructure/utils/event_bus.py
+from collections import defaultdict
+from typing import Callable, Any, TypeVar
 import threading
-import queue
 
-progress_queue = queue.Queue()
+T = TypeVar("T")
 
-def run_harvest_threaded(keywords, progress_callback):
-    def worker():
-        for i, keyword in enumerate(keywords):
-            result = harvest(keyword)
-            progress_queue.put(("progress", i / len(keywords) * 100))
-        progress_queue.put(("done", None))
+class EventBus:
+    """Pub/Sub thread-safe para comunicação entre camadas."""
     
-    thread = threading.Thread(target=worker)
-    thread.start()
+    def __init__(self) -> None:
+        self._subscribers: dict[type, list[Callable]] = defaultdict(list)
+        self._lock = threading.RLock()
+    
+    def subscribe(self, event_type: type, handler: Callable) -> None:
+        with self._lock:
+            self._subscribers[event_type].append(handler)
+    
+    def publish(self, event: Any) -> None:
+        with self._lock:
+            handlers = list(self._subscribers.get(type(event), []))
+        for handler in handlers:
+            try:
+                handler(event)
+            except Exception as e:
+                import logging
+                logging.exception(f"Handler failed for {type(event).__name__}: {e}")
 ```
 
----
-
-### 4.3 MELHORIA #3: Implementar Cache de Requisições HTTP
-
-**Objetivo:** Evitar re-coleta desnecessária e respeitar rate limits.
+### 3.4. Service de Screening (lógica pura, testável)
 
 ```python
-from cachecontrol import CacheControl
+# core/services/screening_service.py
+from core.domain.entities import Paper, Decision
+from core.domain.events import ScreeningCompleted
+from core.ports.ai_client import AIClient
+from core.ports.repositories import ProjectRepository
+from infrastructure.utils.event_bus import EventBus
+
+class ScreeningService:
+    """Caso de uso: triar um paper com IA."""
+    
+    def __init__(
+        self,
+        ai_client: AIClient,
+        repository: ProjectRepository,
+        event_bus: EventBus,
+    ) -> None:
+        self._ai = ai_client
+        self._repo = repository
+        self._bus = event_bus
+    
+    async def screen_paper(
+        self,
+        paper: Paper,
+        protocol_context: dict,
+    ) -> Paper:
+        """Retorna um novo Paper com decisão sugerida."""
+        # 1. Validação prévia (fail-fast, sem chamada de rede)
+        if not self._has_sufficient_data(paper):
+            return paper.with_decision(Decision.PENDING)
+        
+        # 2. Chama IA (injetada, mockável em testes)
+        suggestion = await self._ai.analyze_screening(
+            paper=paper,
+            protocol=protocol_context,
+        )
+        
+        # 3. Aplica sugestão (imutabilidade)
+        updated = paper.with_decision(suggestion.decision)
+        for criterion, value in suggestion.inclusion_criteria.items():
+            updated = updated.with_criterion(criterion, value, is_exclusion=False)
+        for criterion, value in suggestion.exclusion_criteria.items():
+            updated = updated.with_criterion(criterion, value, is_exclusion=True)
+        
+        # 4. Persiste
+        self._repo.update_paper(updated)
+        
+        # 5. Publica evento (ViewModels escutam e atualizam UI)
+        self._bus.publish(ScreeningCompleted(paper=updated, suggested_by_ai=True))
+        
+        return updated
+    
+    def _has_sufficient_data(self, paper: Paper) -> bool:
+        abstract = paper.abstract.strip().lower()
+        if len(abstract) < 20:
+            return False
+        invalid_markers = {"", "n/a", "none", "não informado", "sem resumo"}
+        return abstract not in invalid_markers
+```
+
+### 3.5. ViewModel Reativo (ponte UI ↔ Service)
+
+```python
+# presentation/viewmodels/screening_vm.py
+from dataclasses import dataclass
+from typing import Callable
+from core.domain.events import ScreeningCompleted, BatchScreeningProgress
+from core.services.screening_service import ScreeningService
+from infrastructure.utils.event_bus import EventBus
+import asyncio
+import threading
+
+@dataclass
+class ScreeningState:
+    current_paper_id: str | None = None
+    is_batch_running: bool = False
+    batch_progress: tuple[int, int] = (0, 0)
+
+class ScreeningViewModel:
+    """Expõe estado reativo e comandos para a View."""
+    
+    def __init__(self, service: ScreeningService, event_bus: EventBus) -> None:
+        self._service = service
+        self._bus = event_bus
+        self._state = ScreeningState()
+        self._state_listeners: list[Callable[[ScreeningState], None]] = []
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
+        
+        # Inscreve-se em eventos de domínio
+        self._bus.subscribe(ScreeningCompleted, self._on_screening_completed)
+        self._bus.subscribe(BatchScreeningProgress, self._on_batch_progress)
+    
+    def _run_loop(self) -> None:
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+    
+    @property
+    def state(self) -> ScreeningState:
+        return self._state
+    
+    def add_state_listener(self, listener: Callable[[ScreeningState], None]) -> None:
+        self._state_listeners.append(listener)
+    
+    def _notify(self) -> None:
+        for listener in self._state_listeners:
+            listener(self._state)
+    
+    # === COMANDOS (chamados pela View) ===
+    
+    def screen_current_paper(self, paper: Paper, protocol: dict) -> None:
+        """Comando assíncrono: triar paper atual."""
+        asyncio.run_coroutine_threadsafe(
+            self._service.screen_paper(paper, protocol),
+            self._loop,
+        )
+    
+    def stop_batch(self) -> None:
+        self._state.is_batch_running = False
+        self._notify()
+    
+    # === HANDLERS DE EVENTOS ===
+    
+    def _on_screening_completed(self, event: ScreeningCompleted) -> None:
+        # Atualiza estado e notifica UI (thread-safe via Tk `after`)
+        pass
+    
+    def _on_batch_progress(self, event: BatchScreeningProgress) -> None:
+        self._state.batch_progress = (event.current, event.total)
+        self._notify()
+```
+
+### 3.6. Cliente Gemini com Rotação de Chaves Robusta
+
+```python
+# infrastructure/ai/gemini_client.py
+from dataclasses import dataclass
+from typing import Protocol
 import requests
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-cached_session = CacheControl(requests.Session())
+class AIClient(Protocol):
+    async def analyze_screening(self, paper, protocol) -> "ScreeningSuggestion": ...
 
-response = cached_session.get(url, headers={
-    'Cache-Control': 'max-age=3600'  # Cache por 1 hora
-})
+class QuotaExhaustedError(Exception):
+    """Todas as chaves atingiram quota."""
+
+class ModelUnavailableError(Exception):
+    """Erro 503 — alta demanda."""
+
+@dataclass
+class GeminiKeyState:
+    key: str
+    is_exhausted: bool = False
+    failures: int = 0
+
+class GeminiClient:
+    """Cliente Gemini com rotação, retry exponencial e fallback de modelo."""
+    
+    FALLBACK_MODELS = ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash")
+    
+    def __init__(self, keys: list[str], primary_model: str = "gemini-2.5-flash") -> None:
+        if not keys:
+            raise ValueError("At least one API key is required")
+        self._keys = [GeminiKeyState(key=k) for k in keys]
+        self._current_idx = 0
+        self._primary_model = primary_model
+    
+    def _available_keys(self) -> list[GeminiKeyState]:
+        return [k for k in self._keys if not k.is_exhausted]
+    
+    def _rotate(self) -> GeminiKeyState:
+        available = self._available_keys()
+        if not available:
+            # Reset e tenta novamente (cooldown pode ter passado)
+            for k in self._keys:
+                k.is_exhausted = False
+            available = self._keys
+        self._current_idx = (self._current_idx + 1) % len(self._keys)
+        return self._keys[self._current_idx]
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception_type(ModelUnavailableError),
+        reraise=True,
+    )
+    async def generate_json(self, prompt: str, system: str | None = None) -> dict:
+        """Retorna JSON validado ou lança exceção tipada."""
+        key_state = self._rotate()
+        models = [self._primary_model, *self.FALLBACK_MODELS]
+        
+        last_error: Exception | None = None
+        for model in models:
+            try:
+                response = self._call_api(key_state.key, model, prompt, system)
+                return self._parse_response(response)
+            except QuotaExhaustedError:
+                key_state.is_exhausted = True
+                if not self._available_keys():
+                    raise QuotaExhaustedError(
+                        f"All {len(self._keys)} keys exhausted. Wait for quota reset."
+                    )
+                key_state = self._rotate()
+            except ModelUnavailableError as e:
+                last_error = e
+                continue
+        
+        raise last_error or RuntimeError("All models failed")
+    
+    def _call_api(self, key: str, model: str, prompt: str, system: str | None) -> requests.Response:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"responseMimeType": "application/json"},
+        }
+        if system:
+            payload["systemInstruction"] = {"parts": [{"text": system}]}
+        
+        resp = requests.post(
+            url,
+            params={"key": key},
+            json=payload,
+            timeout=60,
+            headers={"Content-Type": "application/json"},
+        )
+        
+        if resp.status_code == 429 or "RESOURCE_EXHAUSTED" in resp.text:
+            raise QuotaExhaustedError(f"Key quota exhausted: {resp.text[:100]}")
+        if resp.status_code == 503:
+            raise ModelUnavailableError(f"Model {model} unavailable")
+        resp.raise_for_status()
+        return resp
+    
+    def _parse_response(self, resp: requests.Response) -> dict:
+        """Parsing robusto: tenta múltiplas estratégias."""
+        data = resp.json()
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        return JSONResponseParser.parse(text)  # classe dedicada
 ```
 
----
-
-### 4.4 MELHORIA #4: Adicionar Health Checks nas APIs
-
-**Objetivo:** Validar conectividade antes de iniciar coletas.
+### 3.7. Cache LRU para PDFs
 
 ```python
-def check_api_health(base_name: str, url: str) -> bool:
-    try:
-        response = requests.get(url, timeout=5)
-        return response.status_code == 200
-    except:
-        return False
+# infrastructure/utils/lru_cache.py
+from collections import OrderedDict
+from threading import RLock
+from typing import TypeVar, Generic
 
-# Na GUI:
-for base in configured_bases:
-    if not check_api_health(base.name, base.health_url):
-        messagebox.showwarning(f"{base.name} indisponível")
+K = TypeVar("K")
+V = TypeVar("V")
+
+class LRUCache(Generic[K, V]):
+    """Cache com tamanho máximo e política LRU. Thread-safe."""
+    
+    def __init__(self, max_size: int = 100) -> None:
+        self._max = max_size
+        self._data: OrderedDict[K, V] = OrderedDict()
+        self._lock = RLock()
+    
+    def get(self, key: K) -> V | None:
+        with self._lock:
+            if key not in self._data:
+                return None
+            self._data.move_to_end(key)  # marca como recentemente usado
+            return self._data[key]
+    
+    def put(self, key: K, value: V) -> None:
+        with self._lock:
+            if key in self._data:
+                self._data.move_to_end(key)
+            else:
+                if len(self._data) >= self._max:
+                    self._data.popitem(last=False)  # remove o mais antigo
+            self._data[key] = value
 ```
 
 ---
 
-### 4.5 MELHORIA #5: Versionamento de Sessões
+## 4. Roadmap de Migração (4 Fases)
 
-**Problema:** Sessões JSON não têm versionamento, incompatibilidade futura.
+### Fase 1: Fundação (2-3 semanas)
+- [ ] Criar estrutura de pastas proposta
+- [ ] Extrair entidades de domínio (`Paper`, `Protocol`, `Session`)
+- [ ] Implementar `EventBus` tipado
+- [ ] Criar `LRUCache` e substituir `_pdf_text_cache`
+- [ ] Adicionar testes unitários para entidades (cobertura inicial 20%)
 
-**Solução:**
-```json
-{
-  "session_version": "1.0",
-  "created_at": "2024-12-01T10:00:00Z",
-  "app_version": "1.0.0",
-  "protocol": {...},
-  "records": [...]
-}
-```
+### Fase 2: Separação de Camadas (3-4 semanas)
+- [ ] Extrair `ScreeningService`, `ExtractionService`, `HarvestOrchestrator`
+- [ ] Criar `GeminiClient` com retry tipado (usando `tenacity`)
+- [ ] Implementar `ProjectRepository` interface + JSON impl
+- [ ] Migrar ViewModels (começar por `ScreeningViewModel`)
+- [ ] Cobertura de testes sobe para 50%
 
----
+### Fase 3: UI Refactor (4-5 semanas)
+- [ ] Quebrar `SystematicReviewApp` em `AppWindow` + 4 Views
+- [ ] Substituir `after(0, ...)` por `asyncio` + `threading`
+- [ ] Migrar todas as telas para padrão MVVM
+- [ ] Adicionar feedback visual estruturado (toasts, progress bars tipadas)
 
-## 5. Roadmap de Consolidação
-
-### Fase 1: Estabilização (2-3 semanas)
-- [ ] Corrigir Bug #2 (Hardcoding de paths)
-- [ ] Corrigir Bug #3 (Validação de schemas JSON)
-- [ ] Corrigir Bug #8 (Dependência Windows)
-- [ ] Implementar testes unitários mínimos (Bug #9)
-
-### Fase 2: Refatoração (4-6 semanas)
-- [ ] Quebrar `main.py` em módulos menores (Bug #1)
-- [ ] Implementar logging estruturado (Bug #7)
-- [ ] Padronizar formatos de saída (Inconsistência #2)
-- [ ] Criar documentação técnica atualizada
-
-### Fase 3: Otimização (2-3 semanas)
-- [ ] Implementar cache HTTP (Melhoria #3)
-- [ ] Adicionar concorrência controlada (Melhoria #2)
-- [ ] Otimizar uso de memória (Bug #5)
-- [ ] Implementar health checks (Melhoria #4)
-
-### Fase 4: Modernização (4-6 semanas)
-- [ ] Migrar para asyncio moderno
-- [ ] Considerar migração para framework GUI moderno (PyQt6 ou Tauri)
-- [ ] Implementar CI/CD pipeline
-- [ ] Adicionar type hints completos (mypy)
+### Fase 4: Consolidação (2-3 semanas)
+- [ ] DI Container (usar `dependency-injector` ou custom)
+- [ ] Logging estruturado (`structlog` com correlation ID)
+- [ ] Sistema de undo/redo via Command Pattern
+- [ ] CI/CD com testes, lint (`ruff`), type-check (`mypy --strict`)
+- [ ] Empacotamento (`PyInstaller`) otimizado
 
 ---
 
-## 6. Métricas de Qualidade Atuais
+## 5. Ganhos Mensuráveis Esperados
 
-| Métrica | Valor | Meta | Status |
-|---------|-------|------|--------|
-| Linhas de Código Total | ~12.000 | <10.000 | ⚠️ |
-| Cobertura de Testes | 0% | >80% | ❌ |
-| Complexity Average (main.py) | ~50 | <20 | ❌ |
-| Duplicação de Código | ~15% | <5% | ⚠️ |
-| Technical Debt Ratio | Alto | Baixo | ❌ |
-| Documentação Técnica | Parcial | Completa | ⚠️ |
-
----
-
-## 7. Conclusões
-
-O RSAC é uma aplicação funcional e robusta que cumpre seu propósito principal de automação de revisões sistemáticas. No entanto, para garantir sustentabilidade a longo prazo, escalabilidade e facilidade de manutenção, as seguintes ações são **críticas**:
-
-1. **Refatoração urgente do `main.py`** em módulos coesos
-2. **Implementação de suite de testes automatizados**
-3. **Correção de hardcoded paths** para portabilidade
-4. **Padronização de schemas e validações**
-5. **Documentação técnica desvinculada de paths absolutos**
-
-A priorização sugerida segue o modelo **RICE** (Reach, Impact, Confidence, Effort), focando primeiro em bugs de alto impacto e baixo esforço de correção.
+| Métrica | Antes | Depois |
+|---------|-------|--------|
+| Linhas em `main.py` | ~5000 | ~80 (só bootstrap) |
+| Cobertura de testes | 0% | 80%+ |
+| Tempo para adicionar novo harvester | 2-3 dias | 2-3 horas (Adapter Pattern) |
+| Tempo para trocar persistência | Impossível | 1 dia (nova impl do repo) |
+| Bugs de sincronização de estado | Frequentes | Zero (única fonte: domínio) |
+| Memory leak em sessões longas | Presente | Eliminado (LRU cache) |
 
 ---
 
-## Anexos
+## 6. Recomendação Estratégica
 
-### A. Glossário Técnico
-- **SLR**: Systematic Literature Review
-- **PRISMA**: Preferred Reporting Items for Systematic Reviews and Meta-Analyses
-- **GUI**: Graphical User Interface
-- **SOLID**: Princípios de design orientado a objetos
-- **RICE**: Framework de priorização (Reach, Impact, Confidence, Effort)
+**Não tente reescrever tudo de uma vez.** O código atual funciona. A estratégia correta é **Strangler Fig Pattern**:
 
-### B. Referências Bibliográficas
-- Page, M. J., et al. (2022). PRISMA 2020 explanation and elaboration. *BMJ*, 372.
-- Figueira, E. & Oliveira, R. (2026). Revisões Sistemáticas em Desenvolvimento Regional no Brasil. *Revista Brasileira de Estudos Regionais*.
+1. Mantenha o `main.py` atual rodando
+2. Crie a nova estrutura em paralelo (`src/core`, `src/infrastructure`)
+3. Migre **uma feature por vez** (comece pela mais problemática: batch screening)
+4. A View antiga chama o novo Service via adaptador
+5. Quando uma feature estiver 100% migrada e testada, remova o código legado
+
+Isso permite continuar entregando valor enquanto a refatoração acontece.
 
 ---
 
-**Documento elaborado para fins de planejamento de consolidação técnica.**  
-**Próxima revisão prevista:** Março 2025
+## 7. Próximo Passo Concreto
+
+Posso começar implementando **Fase 1 completa** agora:
+
+1. Estrutura de pastas
+2. Entidades de domínio (`Paper`, `Protocol`, `ScreeningSession`)
+3. `EventBus` tipado e thread-safe
+4. `LRUCache` substituindo o cache atual
+5. Primeiros testes unitários (`pytest`)
+
+**Quer que eu comece pela Fase 1?** Posso entregar um PR-ready com toda a fundação implementada, documentada e testada. A partir daí, cada fase subsequente se torna incremental e segura.
