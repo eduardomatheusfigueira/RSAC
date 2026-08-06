@@ -215,6 +215,13 @@ class SystematicReviewApp(tk.Tk):
         self.search_matches_t2 = []
         self.current_search_idx_t2 = -1
 
+        # Performance: debounce timer for auto-save to disk
+        self._debounce_save_id = None
+        self._debounce_save_t1_id = None
+        # In-memory cache for PDF extracted text (paper_id -> text)
+        # Keeps texto_extraido OUT of the main JSON to avoid serializing huge strings
+        self._pdf_text_cache = {}
+
         # Initialize protocol variables
         self.protocol_widgets = {}
         self.protocol_db_vars = {}
@@ -1053,6 +1060,106 @@ class SystematicReviewApp(tk.Tk):
             }
         }
 
+    # ---- Performance: Debounced Auto-Save Helpers ----
+
+    def _schedule_debounced_save(self):
+        """Schedules a debounced disk save (5s delay). Resets timer on each call."""
+        if self._debounce_save_id is not None:
+            self.after_cancel(self._debounce_save_id)
+        self._debounce_save_id = self.after(5000, self._debounced_disk_save)
+
+    def _debounced_disk_save(self):
+        """Actually saves to disk after the debounce period."""
+        self._debounce_save_id = None
+        self._save_unified_json_quietly()
+
+    def _schedule_debounced_save_t1(self):
+        """Schedules a debounced disk save for Triagem 1 (5s delay)."""
+        if self._debounce_save_t1_id is not None:
+            self.after_cancel(self._debounce_save_t1_id)
+        self._debounce_save_t1_id = self.after(5000, self._debounced_disk_save_t1)
+
+    def _debounced_disk_save_t1(self):
+        """Actually saves Triagem 1 to disk after the debounce period."""
+        self._debounce_save_t1_id = None
+        self._save_unified_json_quietly()
+
+    # ---- PDF Text Externalization Helpers ----
+
+    def _get_pdf_text_dir(self):
+        """Returns the directory path for externalized PDF text files."""
+        pdf_dir = self.pdf_download_dir.get().strip()
+        if pdf_dir:
+            return os.path.join(pdf_dir, "_textos_extraidos").replace("\\", "/")
+        if self.unified_file_path:
+            return os.path.join(os.path.dirname(self.unified_file_path), "pdfs", "_textos_extraidos").replace("\\", "/")
+        return ""
+
+    def _save_pdf_text_to_file(self, paper_id, text):
+        """Saves extracted PDF text to a separate .txt file and caches in memory."""
+        if not text:
+            return
+        self._pdf_text_cache[str(paper_id)] = text
+        text_dir = self._get_pdf_text_dir()
+        if not text_dir:
+            return
+        try:
+            win_dir = fix_win_long_path(text_dir)
+            os.makedirs(win_dir, exist_ok=True)
+            txt_path = os.path.join(text_dir, f"ID_{paper_id}_text.txt").replace("\\", "/")
+            win_path = fix_win_long_path(txt_path)
+            with open(win_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+        except Exception as e:
+            logging.warning(f"Failed to save PDF text file for paper {paper_id}: {e}")
+
+    def _load_pdf_text_for_paper(self, paper):
+        """Loads PDF text from cache or external file. Returns the text string."""
+        paper_id = str(paper.get('id', ''))
+        # 1. Check in-memory cache first
+        if paper_id in self._pdf_text_cache:
+            return self._pdf_text_cache[paper_id]
+        # 2. Check inline (legacy format — will be migrated on next save)
+        ext = paper.get('Extracao', {})
+        if isinstance(ext, dict):
+            inline_text = ext.get('texto_extraido', '')
+            if inline_text:
+                self._pdf_text_cache[paper_id] = inline_text
+                return inline_text
+        # 3. Load from external .txt file
+        text_dir = self._get_pdf_text_dir()
+        if text_dir:
+            txt_path = os.path.join(text_dir, f"ID_{paper_id}_text.txt").replace("\\", "/")
+            win_path = fix_win_long_path(txt_path)
+            if os.path.exists(win_path):
+                try:
+                    with open(win_path, 'r', encoding='utf-8') as f:
+                        text = f.read()
+                    self._pdf_text_cache[paper_id] = text
+                    return text
+                except Exception:
+                    pass
+        return ""
+
+    def _migrate_inline_texts_to_files(self):
+        """Migrates any inline texto_extraido from session data to external .txt files."""
+        if not self.current_session.get('trabalhos'):
+            return
+        migrated = 0
+        for paper in self.current_session['trabalhos']:
+            ext = paper.get('Extracao', {})
+            if not isinstance(ext, dict):
+                continue
+            inline_text = ext.get('texto_extraido', '')
+            if inline_text:
+                paper_id = str(paper.get('id', ''))
+                self._save_pdf_text_to_file(paper_id, inline_text)
+                del ext['texto_extraido']
+                ext['tem_texto_extraido'] = True
+                migrated += 1
+        if migrated > 0:
+            logging.info(f"Migrated {migrated} inline PDF texts to external files.")
+
     def build_unified_data(self):
         """Consolidates all current app state into the unified JSON structure."""
         from datetime import datetime
@@ -1083,12 +1190,24 @@ class SystematicReviewApp(tk.Tk):
             except Exception:
                 pass
             try:
-                self.save_current_paper_extraction()
+                self.save_current_paper_extraction_to_memory()
             except Exception:
                 pass
             self.current_session['campos_extracao'] = self.campos_extracao.copy()
-            unified["triagem"] = self.current_session
 
+            # Strip texto_extraido from JSON output to keep file small
+            # (text is stored in external .txt files)
+            import copy
+            triagem_copy = copy.deepcopy(self.current_session)
+            for paper in triagem_copy.get('trabalhos', []):
+                ext = paper.get('Extracao', {})
+                if isinstance(ext, dict) and 'texto_extraido' in ext:
+                    # Save to external file before stripping
+                    self._save_pdf_text_to_file(str(paper.get('id', '')), ext['texto_extraido'])
+                    del ext['texto_extraido']
+                    ext['tem_texto_extraido'] = True
+            unified["triagem"] = triagem_copy
+        
         # --- Meta ---
         unified["meta"]["atualizado_em"] = datetime.now().isoformat(timespec='seconds')
 
@@ -1122,8 +1241,21 @@ class SystematicReviewApp(tk.Tk):
                     except Exception:
                         pass
 
-                with open(file_path, 'w', encoding='utf-8') as f:
+                win_path = fix_win_long_path(file_path)
+                tmp_path = fix_win_long_path(file_path + ".tmp")
+                bak_path = fix_win_long_path(file_path + ".bak")
+
+                with open(tmp_path, 'w', encoding='utf-8') as f:
                     json.dump(unified, f, ensure_ascii=False, indent=4)
+
+                if os.path.exists(win_path) and os.path.getsize(win_path) > 0:
+                    try:
+                        import shutil
+                        shutil.copy2(win_path, bak_path)
+                    except Exception:
+                        pass
+
+                os.replace(tmp_path, win_path)
 
                 self.unified_file_path = file_path
                 self.status_var.set(f"Projeto salvo em: {os.path.basename(file_path)}")
@@ -1153,8 +1285,20 @@ class SystematicReviewApp(tk.Tk):
                     pass
 
             win_path = fix_win_long_path(self.unified_file_path)
-            with open(win_path, 'w', encoding='utf-8') as f:
+            tmp_path = fix_win_long_path(self.unified_file_path + ".tmp")
+            bak_path = fix_win_long_path(self.unified_file_path + ".bak")
+
+            with open(tmp_path, 'w', encoding='utf-8') as f:
                 json.dump(unified, f, ensure_ascii=False, indent=4)
+
+            if os.path.exists(win_path) and os.path.getsize(win_path) > 0:
+                try:
+                    import shutil
+                    shutil.copy2(win_path, bak_path)
+                except Exception:
+                    pass
+
+            os.replace(tmp_path, win_path)
             self.status_var.set(f"Sessão auto-salva em: {os.path.basename(self.unified_file_path)}")
         except Exception as e:
             self.status_var.set(f"Erro ao auto-salvar: {str(e)}")
@@ -1162,11 +1306,31 @@ class SystematicReviewApp(tk.Tk):
     def _load_unified_or_legacy(self, file_path):
         """Detects JSON format (unified or legacy) and populates all app state accordingly.
         Returns True on success, False on failure."""
+        if not os.path.exists(file_path):
+            messagebox.showerror("Erro", f"O arquivo não foi encontrado:\n{file_path}")
+            return False
+
+        if os.path.getsize(file_path) == 0:
+            base, ext = os.path.splitext(file_path)
+            candidates = [file_path + ".bak", base + "_backup" + ext, base + ".backup" + ext]
+            valid_bak = [c for c in candidates if os.path.exists(c) and os.path.getsize(c) > 0]
+
+            msg = f"O arquivo JSON selecionado está completamente vazio (0 bytes):\n{file_path}\n\nO salvamento anterior pode ter sido interrompido."
+            if valid_bak:
+                bak_file = valid_bak[0]
+                if messagebox.askyesno("Arquivo Vazio - Backup Encontrado", f"{msg}\n\nEncontramos um arquivo de backup válido:\n{bak_file}\n\nDeseja carregar este backup?"):
+                    file_path = bak_file
+                else:
+                    return False
+            else:
+                messagebox.showerror("Arquivo Vazio", msg)
+                return False
+
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except Exception as e:
-            messagebox.showerror("Erro", f"Não foi possível ler o arquivo JSON:\n{e}")
+            messagebox.showerror("Erro de Leitura JSON", f"Não foi possível ler o arquivo JSON:\n{e}\n\nVerifique se o arquivo não está corrompido.")
             return False
 
         # Auto-detect PDF folder as a sibling of the loaded JSON file
@@ -1376,6 +1540,9 @@ class SystematicReviewApp(tk.Tk):
     def _populate_triagem_from_dict(self, session):
         """Populates Triagem and Extraction tabs from a session dictionary."""
         self.current_session = session
+
+        # Migrate any inline texto_extraido to external .txt files (performance)
+        self._migrate_inline_texts_to_files()
 
         self.triagem_csv_files = session.get('arquivos_origem', [])
         self.inclusion_criteria = session.get('criterios_inclusao', [])
@@ -3037,20 +3204,20 @@ class SystematicReviewApp(tk.Tk):
         if not selected:
             return
             
-        # First save current paper extraction answers
-        self.save_current_paper_extraction()
+        # First save current paper extraction answers (memory only, fast)
+        self.save_current_paper_extraction_to_memory()
         
         t2_id = selected[0]
         paper_id = t2_id.replace("t2_", "")
         
         for idx, t in enumerate(self.current_session.get('trabalhos', [])):
-            if t['id'] == paper_id:
+            if str(t['id']) == str(paper_id):
                 self.selected_paper_index_t2 = idx
                 self.update_dynamic_form_t2(t)
                 
                 # Update PDF Text Area
                 ext = t.get('Extracao', {})
-                pdf_text = ext.get('texto_extraido', '')
+                pdf_text = self._load_pdf_text_for_paper(t)
                 status_pdf = ext.get('status_pdf', 'Pendente')
                 
                 self.txt_pdf_text_t2.configure(state="normal")
@@ -3081,7 +3248,10 @@ class SystematicReviewApp(tk.Tk):
 
     def extract_and_display_pdf_text(self, paper, pdf_path):
         text = self.extract_text_from_pdf_file(pdf_path)
-        paper['Extracao']['texto_extraido'] = text
+        # Save to external file and cache (not inline in paper dict)
+        self._save_pdf_text_to_file(str(paper.get('id', '')), text)
+        if isinstance(paper.get('Extracao'), dict):
+            paper['Extracao']['tem_texto_extraido'] = bool(text)
         
         # Check if still selected
         if self.selected_paper_index_t2 is not None:
@@ -3305,9 +3475,10 @@ class SystematicReviewApp(tk.Tk):
                 ext['status_pdf'] = "Baixado"
                 ext['caminho_pdf'] = pdf_path
                 
-                # Extract text right away
+                # Extract text right away and save to external file
                 text = self.extract_text_from_pdf_file(pdf_path)
-                ext['texto_extraido'] = text
+                self._save_pdf_text_to_file(str(paper.get('id', '')), text)
+                ext['tem_texto_extraido'] = bool(text)
                 return True
             else:
                 ext['status_pdf'] = "Erro"
@@ -3469,7 +3640,8 @@ class SystematicReviewApp(tk.Tk):
             
             self.status_var.set("Extraindo texto do PDF associado...")
             text = self.extract_text_from_pdf_file(dest_path)
-            ext['texto_extraido'] = text
+            self._save_pdf_text_to_file(str(paper.get('id', '')), text)
+            ext['tem_texto_extraido'] = bool(text)
             
             self.tree_triagem_2.item("t2_" + paper['id'], values=(paper['id'], paper['Título'], paper['Autores'], paper['Ano'], "Baixado", ext.get('status_extracao', 'Pendente')))
             self.on_treeview_select_t2(None)
@@ -3611,14 +3783,12 @@ class SystematicReviewApp(tk.Tk):
                         ext['caminho_pdf'] = path
                         updated_count += 1
                         
-                    if not ext.get('texto_extraido'):
+                    if not ext.get('texto_extraido') and not ext.get('tem_texto_extraido') and not self._load_pdf_text_for_paper(paper):
                         newly_found.append((paper, path))
                 else:
                     if prev_status == 'Baixado':
                         ext['status_pdf'] = 'Pendente'
                         ext['caminho_pdf'] = ''
-                        # Mantém o texto extraído para não perder o progresso
-                        # ext['texto_extraido'] = ''
                         updated_count += 1
                         
         self.populate_treeview_t2()
@@ -3716,6 +3886,8 @@ class SystematicReviewApp(tk.Tk):
             
             val = get_matching_val(respostas, field, f_idx)
             txt_reply.insert(tk.END, str(val))
+            txt_reply.bind("<FocusOut>", lambda e: self.save_current_paper_extraction())
+            txt_reply.bind("<KeyRelease>", lambda e: self._on_extraction_key_release())
             
             self.dynamic_vars_t2['respostas'][field] = txt_reply
             row_idx += 1
@@ -3733,7 +3905,7 @@ class SystematicReviewApp(tk.Tk):
         val_obs = ext.get('observacoes', paper.get('Observacoes', ''))
         self.txt_observacoes_t2.insert(tk.END, val_obs)
         self.txt_observacoes_t2.bind("<FocusOut>", lambda e: self.save_current_paper_extraction())
-        self.txt_observacoes_t2.bind("<KeyRelease>", lambda e: self.save_current_paper_extraction())
+        self.txt_observacoes_t2.bind("<KeyRelease>", lambda e: self._on_extraction_key_release())
         row_idx += 1
 
         lbl_st = ttk.Label(self.dynamic_form_inner_frame_t2, text="Status da Extração:", font=("Segoe UI", 9, "bold"), wraplength=w_wrap, justify="left")
@@ -3742,11 +3914,20 @@ class SystematicReviewApp(tk.Tk):
 
         cb_status = ttk.Combobox(self.dynamic_form_inner_frame_t2, textvariable=self.dynamic_vars_t2['status_extracao'], values=["Pendente", "Concluída"], state="readonly", width=15)
         cb_status.grid(row=row_idx, column=0, sticky="w", pady=(0, 5))
+        cb_status.bind("<<ComboboxSelected>>", lambda e: self.save_current_paper_extraction())
         row_idx += 1
 
-    def save_current_paper_extraction(self):
-        """Saves current dynamic extraction answers into the active paper state."""
+    def _on_extraction_key_release(self):
+        """Handles KeyRelease in extraction fields: saves to memory instantly, debounces disk save."""
+        self.save_current_paper_extraction_to_memory()
+        self._schedule_debounced_save()
+
+    def save_current_paper_extraction_to_memory(self):
+        """Saves current dynamic extraction answers into the active paper state (memory only, NO disk IO)."""
         if self.selected_paper_index_t2 is None:
+            return
+
+        if self.selected_paper_index_t2 >= len(self.current_session.get('trabalhos', [])):
             return
 
         paper = self.current_session['trabalhos'][self.selected_paper_index_t2]
@@ -3759,19 +3940,30 @@ class SystematicReviewApp(tk.Tk):
             respostas = {}
             ext['respostas'] = respostas
 
-        for field, txt_widget in self.dynamic_vars_t2.get('respostas', {}).items():
-            respostas[field] = txt_widget.get("1.0", tk.END).strip()
+        if hasattr(self, 'dynamic_vars_t2') and 'respostas' in self.dynamic_vars_t2:
+            for field, txt_widget in self.dynamic_vars_t2.get('respostas', {}).items():
+                if hasattr(txt_widget, 'get') and txt_widget.winfo_exists():
+                    respostas[field] = txt_widget.get("1.0", tk.END).strip()
 
         if hasattr(self, 'txt_observacoes_t2') and self.txt_observacoes_t2.winfo_exists():
             obs = self.txt_observacoes_t2.get("1.0", tk.END).strip()
             ext['observacoes'] = obs
             paper['Observacoes'] = obs
             
-        status_ext = self.dynamic_vars_t2.get('status_extracao').get()
-        ext['status_extracao'] = status_ext
+        if hasattr(self, 'dynamic_vars_t2') and 'status_extracao' in self.dynamic_vars_t2:
+            status_ext = self.dynamic_vars_t2.get('status_extracao').get()
+            ext['status_extracao'] = status_ext
+            
+            try:
+                self.tree_triagem_2.item("t2_" + str(paper['id']), values=(paper['id'], paper['Título'], paper['Autores'], paper['Ano'], ext.get('status_pdf', 'Pendente'), status_ext), tags=(status_ext, ext.get('status_pdf', 'Pendente')))
+            except Exception:
+                pass
+
+    def save_current_paper_extraction(self):
+        """Saves current extraction answers to memory AND triggers immediate disk save."""
+        self.save_current_paper_extraction_to_memory()
         
-        self.tree_triagem_2.item("t2_" + paper['id'], values=(paper['id'], paper['Título'], paper['Autores'], paper['Ano'], ext.get('status_pdf', 'Pendente'), status_ext), tags=(status_ext, ext.get('status_pdf', 'Pendente')))
-        
+        # Update status label
         children_t2 = self.tree_triagem_2.get_children()
         num_included = len(children_t2)
         num_done = sum(1 for t in self.current_session.get('trabalhos', []) if t.get('Decisao') == 'Incluído' and t.get('Extracao', {}).get('status_extracao') == 'Concluída')
@@ -3779,6 +3971,7 @@ class SystematicReviewApp(tk.Tk):
             text=f"Sessão ativa: {len(self.current_session.get('trabalhos', []))} trabalhos.\nIncluídos: {num_included} ({num_done} extraídos).",
             foreground="#1f497d"
         )
+        self._save_unified_json_quietly()
 
     def save_extraction_and_next_t2(self):
         """Saves decisions for current paper and moves selection to next paper in Triagem 2."""
@@ -4045,7 +4238,8 @@ class SystematicReviewApp(tk.Tk):
                 existing_lookup[norm] = {
                     'Criterios': t.get('Criterios', {}),
                     'Perguntas': t.get('Perguntas', {}),
-                    'Decisao': t.get('Decisao', 'Pendente')
+                    'Decisao': t.get('Decisao', 'Pendente'),
+                    'Extracao': t.get('Extracao', {})
                 }
 
         all_dfs = []
@@ -4164,7 +4358,8 @@ class SystematicReviewApp(tk.Tk):
                 'Fonte': source_str,
                 'Criterios': criterios,
                 'Perguntas': perguntas,
-                'Decisao': prev_decisao
+                'Decisao': prev_decisao,
+                'Extracao': prev.get('Extracao', {})
             }
             deduped_trabalhos.append(rec)
             idx += 1
@@ -4330,7 +4525,7 @@ class SystematicReviewApp(tk.Tk):
         self.txt_paper_abstract.insert(tk.END, paper.get('Resumo', ''))
         # Auto-save abstract when edited or focus lost
         self.txt_paper_abstract.bind("<FocusOut>", lambda e: self.save_current_paper_abstract_only())
-        self.txt_paper_abstract.bind("<KeyRelease>", lambda e: self.save_current_paper_abstract_only())
+        self.txt_paper_abstract.bind("<KeyRelease>", lambda e: self._schedule_debounced_save_t1())
         
         # Clear previous dynamic form widgets
         for child in self.dynamic_form_inner_frame.winfo_children():
@@ -4410,7 +4605,7 @@ class SystematicReviewApp(tk.Tk):
                 ent.grid(row=row_idx, column=0, sticky="ew", padx=5, pady=(0, 4))
                 # Auto-save questions on edit
                 ent.bind("<FocusOut>", lambda e: self.save_current_paper_decisions())
-                ent.bind("<KeyRelease>", lambda e: self.save_current_paper_decisions())
+                ent.bind("<KeyRelease>", lambda e: self._schedule_debounced_save_t1())
                 row_idx += 1
                 
         # 4. Observações / Justificativa
@@ -4424,7 +4619,7 @@ class SystematicReviewApp(tk.Tk):
         self.txt_observacoes.grid(row=row_idx, column=0, sticky="ew", padx=2, pady=(0, 5))
         self.txt_observacoes.insert(tk.END, paper.get('Observacoes', ''))
         self.txt_observacoes.bind("<FocusOut>", lambda e: self.save_current_paper_decisions())
-        self.txt_observacoes.bind("<KeyRelease>", lambda e: self.save_current_paper_decisions())
+        self.txt_observacoes.bind("<KeyRelease>", lambda e: self._schedule_debounced_save_t1())
         row_idx += 1
 
         # 5. Decision Dropdown & Action buttons
@@ -5539,7 +5734,7 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido no formato:
             "campos_extracao": self.campos_extracao
         }
 
-        raw_pdf_text = ext.get("texto_extraido", "")
+        raw_pdf_text = self._load_pdf_text_for_paper(paper)
         clean_pdf_text = sanitize_text(raw_pdf_text)[:25000]
 
         study_info = {
@@ -5618,29 +5813,63 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
                         return dict_data
                     return None
 
+                # Directly update paper state in memory so extracted data is preserved even if user switches selection
+                if 'Extracao' not in paper or not isinstance(paper['Extracao'], dict):
+                    paper['Extracao'] = {}
+                ext = paper['Extracao']
+
+                respostas = ext.get('respostas', {})
+                if not isinstance(respostas, dict):
+                    respostas = {}
+                    ext['respostas'] = respostas
+
+                resp_dict = res.get('respostas') if isinstance(res, dict) else res
+                if not resp_dict:
+                    resp_dict = res
+
+                for field in self.campos_extracao:
+                    val_f = get_json_key_val(resp_dict, field)
+                    if val_f is not None:
+                        respostas[field] = str(val_f)
+
+                status_ext = res.get('status_extracao')
+                if status_ext in ["Concluída", "Pendente"]:
+                    ext['status_extracao'] = status_ext
+                else:
+                    ext['status_extracao'] = "Concluída"
+
+                obs = res.get('observacoes', '')
+                if obs:
+                    ext['observacoes'] = obs
+                    paper['Observacoes'] = obs
+
                 def update_ui():
-                    if self.selected_paper_index_t2 is not None and self.current_session['trabalhos'][self.selected_paper_index_t2]['id'] == paper['id']:
-                        resp_dict = res.get('respostas') if isinstance(res, dict) else res
-                        if not resp_dict:
-                            resp_dict = res
+                    # Update Treeview item status tag
+                    try:
+                        self.tree_triagem_2.item("t2_" + str(paper['id']), values=(paper['id'], paper['Título'], paper['Autores'], paper['Ano'], ext.get('status_pdf', 'Pendente'), ext.get('status_extracao')), tags=(ext.get('status_extracao'), ext.get('status_pdf', 'Pendente')))
+                    except Exception:
+                        pass
+
+                    # Auto-save unified session to disk immediately
+                    self._save_unified_json_quietly()
+
+                    # If user is currently looking at this paper, refresh UI widgets live
+                    if self.selected_paper_index_t2 is not None and str(self.current_session['trabalhos'][self.selected_paper_index_t2]['id']) == str(paper['id']):
                         for field, txt_widget in self.dynamic_vars_t2.get('respostas', {}).items():
-                            val_f = get_json_key_val(resp_dict, field)
-                            if val_f is not None:
+                            val_f = respostas.get(field, "")
+                            if val_f:
                                 txt_widget.delete("1.0", tk.END)
                                 txt_widget.insert(tk.END, str(val_f))
 
-                        status_ext = res.get('status_extracao')
-                        if status_ext in ["Concluída", "Pendente"]:
-                            self.dynamic_vars_t2['status_extracao'].set(status_ext)
+                        if hasattr(self, 'dynamic_vars_t2') and 'status_extracao' in self.dynamic_vars_t2:
+                            self.dynamic_vars_t2['status_extracao'].set(ext.get('status_extracao', 'Concluída'))
 
-                        obs = res.get('observacoes', '')
                         if hasattr(self, 'txt_observacoes_t2') and obs:
                             self.txt_observacoes_t2.delete("1.0", tk.END)
                             self.txt_observacoes_t2.insert(tk.END, obs)
 
-                        self.save_current_paper_extraction()
-                        self.status_var.set(f"✨ Gemini concluiu a extração para o trabalho #{paper.get('id')}.")
-                        messagebox.showinfo("Parceiro de Extração Gemini", f"Extração de dados concluída para o trabalho #{paper.get('id')}!\n\nOs campos de extração e observações foram preenchidos. Revise e confirme!")
+                    self.status_var.set(f"✨ Gemini concluiu a extração para o trabalho #{paper.get('id')}.")
+                    messagebox.showinfo("Parceiro de Extração Gemini", f"Extração de dados concluída para o trabalho #{paper.get('id')}!\n\nOs campos de extração e observações foram salvos com sucesso.")
 
                     if hasattr(self, 'btn_gemini_t2'):
                         self.btn_gemini_t2.configure(state="normal")
