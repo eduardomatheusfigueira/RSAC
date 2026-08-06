@@ -51,6 +51,10 @@ from config_app.utils.path_resolver import (
 )
 ensure_workspace_in_sys_path()
 
+# Clean Architecture infrastructure utilities
+from src.infrastructure.utils.lru_cache import LRUCache
+from src.infrastructure.ai.response_parser import JSONResponseParser
+
 # Import harvesters natively so PyInstaller bundles them and execution works inside single process
 try:
     from bdtd_harvester.bdtd_harvester import run_harvest as bdtd_run_harvest
@@ -138,49 +142,21 @@ class SystematicReviewApp(tk.Tk):
         self.geometry("900x650")
         self.minsize(640, 480)
         
-        # Define modern color palette and styles
+        # ── ScholarReview Design System ──────────────────────────────
+        # Registra fontes embarcadas e aplica o tema monocromático
+        from src.presentation.typography import register_fonts
+        from src.presentation.theme import apply_theme, DesignTokens
+        register_fonts()
+        self._tokens = apply_theme(self)
         self.style = ttk.Style()
-        self.style.theme_use('clam')
-        
-        # Primary colors
-        self.bg_color = "#f5f6f8"
-        self.primary_color = "#1f497d"
-        self.accent_color = "#4f81bd"
-        self.text_color = "#333333"
-        self.white = "#ffffff"
-        
-        # Configure styles
-        self.configure(bg=self.bg_color)
-        
-        self.style.configure(".", background=self.bg_color, foreground=self.text_color, font=("Segoe UI", 10))
-        self.style.configure("TFrame", background=self.bg_color)
-        
-        # Title Label style
-        self.style.configure("Title.TLabel", font=("Segoe UI", 16, "bold"), foreground=self.primary_color, background=self.bg_color)
-        self.style.configure("Subtitle.TLabel", font=("Segoe UI", 9, "italic"), foreground="#666666", background=self.bg_color)
-        
-        # Card style (Frame with white bg)
-        self.style.configure("Card.TFrame", background=self.white, relief="solid", borderwidth=1)
-        
-        # Notebook (Tabs) style
-        self.style.configure("TNotebook", background=self.bg_color, borderwidth=0)
-        self.style.configure("TNotebook.Tab", font=("Segoe UI", 10, "bold"), padding=[12, 6], background="#e1e4e8")
-        self.style.map("TNotebook.Tab",
-            background=[("selected", self.primary_color)],
-            foreground=[("selected", self.white)]
-        )
-        
-        # Buttons style
-        self.style.configure("Primary.TButton", font=("Segoe UI", 10, "bold"), foreground=self.white, background=self.primary_color, padding=[10, 6])
-        self.style.map("Primary.TButton",
-            background=[("active", self.accent_color), ("pressed", "#153358")],
-            foreground=[("active", self.white)]
-        )
-        
-        self.style.configure("Secondary.TButton", font=("Segoe UI", 10), background="#e1e4e8", padding=[8, 4])
-        
-        self.style.configure("Header.TLabel", font=("Segoe UI", 11, "bold"), foreground=self.primary_color, background=self.white)
-        self.style.configure("Bold.TLabel", font=("Segoe UI", 10, "bold"))
+
+        # Aliases de cor para compatibilidade com código legado
+        # (preserva as ~30 referências a self.bg_color etc. no restante do arquivo)
+        self.bg_color = self._tokens.surface
+        self.primary_color = self._tokens.primary
+        self.accent_color = self._tokens.on_surface
+        self.text_color = self._tokens.on_surface
+        self.white = self._tokens.paper
         
         # Initialize keywords list
         self.keywords = []
@@ -211,6 +187,7 @@ class SystematicReviewApp(tk.Tk):
         self.campos_extracao = []
         self.selected_paper_index_t2 = None
         self.dynamic_vars_t2 = {}
+        self._dynamic_form_paper_id = None  # Tracks which paper ID the dynamic extraction form widgets currently display
         self.pdf_download_dir = tk.StringVar(value="Revisão teste/pdfs")
         self.search_matches_t2 = []
         self.current_search_idx_t2 = -1
@@ -220,7 +197,8 @@ class SystematicReviewApp(tk.Tk):
         self._debounce_save_t1_id = None
         # In-memory cache for PDF extracted text (paper_id -> text)
         # Keeps texto_extraido OUT of the main JSON to avoid serializing huge strings
-        self._pdf_text_cache = {}
+        # Uses LRUCache with max capacity of 500 items to prevent memory leaks in long sessions
+        self._pdf_text_cache = LRUCache[str, str](max_size=500)
 
         # Initialize protocol variables
         self.protocol_widgets = {}
@@ -3204,8 +3182,9 @@ class SystematicReviewApp(tk.Tk):
         if not selected:
             return
             
-        # First save current paper extraction answers (memory only, fast)
+        # First save current paper extraction answers (memory and disk quietly)
         self.save_current_paper_extraction_to_memory()
+        self._save_unified_json_quietly()
         
         t2_id = selected[0]
         paper_id = t2_id.replace("t2_", "")
@@ -3826,7 +3805,7 @@ class SystematicReviewApp(tk.Tk):
             respostas = ext.get('respostas_questoes', {})
         if not isinstance(respostas, dict):
             respostas = {}
-            ext['respostas'] = respostas
+        ext['respostas'] = respostas  # Always attach to ext so writes persist
 
         import unicodedata
 
@@ -3837,27 +3816,37 @@ class SystematicReviewApp(tk.Tk):
         def get_matching_val(resp_dict, field_name, field_idx):
             if not isinstance(resp_dict, dict) or not resp_dict:
                 return ""
-            if field_name in resp_dict:
+            if field_name in resp_dict and resp_dict[field_name]:
                 return resp_dict[field_name]
             
-            # Try index matching (e.g. '0', '1', '2', '3', '4', '5')
-            if str(field_idx) in resp_dict:
-                return resp_dict[str(field_idx)]
-            if f"field_{field_idx}" in resp_dict:
-                return resp_dict[f"field_{field_idx}"]
-                
+            # Check index keys
+            for k in [str(field_idx), f"field_{field_idx}", f"campo_{field_idx+1}", str(field_idx+1)]:
+                if k in resp_dict and resp_dict[k]:
+                    return resp_dict[k]
+                    
             field_ascii = norm_ascii(field_name)
-            if field_ascii in resp_dict:
+            if field_ascii in resp_dict and resp_dict[field_ascii]:
                 return resp_dict[field_ascii]
 
+            # Fuzzy name match
             for k, v in resp_dict.items():
+                if not v: continue
                 k_ascii = norm_ascii(k)
-                if k_ascii == field_ascii and v:
+                if k_ascii == field_ascii:
                     return v
-                # Partial prefix match
-                prefix_field = field_ascii[:15]
-                if prefix_field and len(prefix_field) >= 5 and prefix_field in k_ascii and v:
-                    return v
+                if len(field_ascii) >= 4 and len(k_ascii) >= 4:
+                    if field_ascii in k_ascii or k_ascii in field_ascii:
+                        return v
+                    words_field = set(w for w in field_ascii.split() if len(w) > 3)
+                    words_k = set(w for w in k_ascii.split() if len(w) > 3)
+                    if words_field and words_k and (words_field & words_k):
+                        return v
+
+            # Positional fallback
+            vals = [v for k, v in resp_dict.items() if k not in ["status_extracao", "observacoes", "respostas"] and v]
+            if field_idx < len(vals):
+                return vals[field_idx]
+
             return ""
 
         self.dynamic_form_inner_frame_t2.grid_columnconfigure(0, weight=1)
@@ -3869,6 +3858,7 @@ class SystematicReviewApp(tk.Tk):
             'respostas': {},
             'status_extracao': tk.StringVar(value=ext.get('status_extracao', 'Pendente'))
         }
+        self._dynamic_form_paper_id = str(paper.get('id', ''))  # Track which paper this form belongs to
         
         row_idx = 0
         
@@ -3931,6 +3921,14 @@ class SystematicReviewApp(tk.Tk):
             return
 
         paper = self.current_session['trabalhos'][self.selected_paper_index_t2]
+
+        # CRITICAL GUARD: Only save widget contents if the form is currently showing THIS paper.
+        # Without this check, stale widgets (from a previously displayed paper) could overwrite
+        # the selected paper's data with empty strings.
+        paper_id_str = str(paper.get('id', ''))
+        if self._dynamic_form_paper_id is not None and self._dynamic_form_paper_id != paper_id_str:
+            return
+
         if 'Extracao' not in paper or not isinstance(paper['Extracao'], dict):
             paper['Extracao'] = {}
         ext = paper['Extracao']
@@ -3938,17 +3936,34 @@ class SystematicReviewApp(tk.Tk):
         respostas = ext.get('respostas', {})
         if not isinstance(respostas, dict):
             respostas = {}
-            ext['respostas'] = respostas
+        ext['respostas'] = respostas  # Always attach to ext so writes persist
 
         if hasattr(self, 'dynamic_vars_t2') and 'respostas' in self.dynamic_vars_t2:
             for field, txt_widget in self.dynamic_vars_t2.get('respostas', {}).items():
-                if hasattr(txt_widget, 'get') and txt_widget.winfo_exists():
-                    respostas[field] = txt_widget.get("1.0", tk.END).strip()
+                try:
+                    if not txt_widget.winfo_exists():
+                        continue
+                    val = txt_widget.get("1.0", tk.END).strip()
+                    if val:
+                        respostas[field] = val
+                    # Never overwrite existing data with empty string from widgets.
+                    # The only way to clear a field is by the user actively typing/deleting in it,
+                    # which is handled by the KeyRelease binding that fires on each keystroke.
+                except Exception:
+                    continue
 
         if hasattr(self, 'txt_observacoes_t2') and self.txt_observacoes_t2.winfo_exists():
             obs = self.txt_observacoes_t2.get("1.0", tk.END).strip()
-            ext['observacoes'] = obs
-            paper['Observacoes'] = obs
+            if obs:
+                ext['observacoes'] = obs
+                paper['Observacoes'] = obs
+            elif ext.get('observacoes'):
+                try:
+                    if self.focus_get() == self.txt_observacoes_t2:
+                        ext['observacoes'] = ""
+                        paper['Observacoes'] = ""
+                except Exception:
+                    pass
             
         if hasattr(self, 'dynamic_vars_t2') and 'status_extracao' in self.dynamic_vars_t2:
             status_ext = self.dynamic_vars_t2.get('status_extracao').get()
@@ -5729,6 +5744,19 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido no formato:
         paper = self.current_session['trabalhos'][self.selected_paper_index_t2]
         ext = paper.get('Extracao', {})
 
+        if not self.campos_extracao:
+            session_campos = self.current_session.get('campos_extracao', [])
+            if session_campos:
+                self.campos_extracao = session_campos.copy()
+            else:
+                proto_ext = self.current_session.get('protocolo', {}).get('campos_extracao', '')
+                if isinstance(proto_ext, str) and proto_ext:
+                    self.campos_extracao = [line.strip() for line in proto_ext.strip().splitlines() if line.strip()]
+                elif isinstance(proto_ext, list) and proto_ext:
+                    self.campos_extracao = proto_ext.copy()
+            if not self.campos_extracao:
+                self.campos_extracao = ["Objetivo do Estudo", "Método / Abordagem", "Participantes / Amostra", "Principais Resultados", "Conclusões / Limitações"]
+
         protocol_info = {
             "nome_revisao": self.ent_project_name.get().strip() if hasattr(self, 'ent_project_name') else "",
             "campos_extracao": self.campos_extracao
@@ -5776,16 +5804,18 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
 }}
 """
                 raw_text = self.call_gemini_api(prompt)
-                clean_text = raw_text.strip()
-                if clean_text.startswith("```"):
-                    lines = clean_text.splitlines()
-                    if lines[0].startswith("```"):
-                        lines = lines[1:]
-                    if lines and lines[-1].startswith("```"):
-                        lines = lines[:-1]
-                    clean_text = "\n".join(lines).strip()
-
-                res = json.loads(clean_text)
+                try:
+                    res = JSONResponseParser.parse(raw_text)
+                except Exception:
+                    clean_text = raw_text.strip()
+                    if clean_text.startswith("```"):
+                        lines = clean_text.splitlines()
+                        if lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines and lines[-1].startswith("```"):
+                            lines = lines[:-1]
+                        clean_text = "\n".join(lines).strip()
+                    res = json.loads(clean_text)
 
                 def get_json_key_val(dict_data, target_key):
                     if not dict_data:
@@ -5821,16 +5851,23 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
                 respostas = ext.get('respostas', {})
                 if not isinstance(respostas, dict):
                     respostas = {}
-                    ext['respostas'] = respostas
+                ext['respostas'] = respostas  # Always attach to ext so writes persist
 
                 resp_dict = res.get('respostas') if isinstance(res, dict) else res
                 if not resp_dict:
                     resp_dict = res
 
-                for field in self.campos_extracao:
+                for idx, field in enumerate(self.campos_extracao):
                     val_f = get_json_key_val(resp_dict, field)
+                    if val_f is None and isinstance(resp_dict, list) and idx < len(resp_dict):
+                        val_f = resp_dict[idx]
+                    if val_f is None and isinstance(resp_dict, dict):
+                        val_f = resp_dict.get(str(idx)) or resp_dict.get(f"field_{idx}") or resp_dict.get(f"campo_{idx+1}")
                     if val_f is not None:
                         respostas[field] = str(val_f)
+
+                # NOTE: Do NOT store raw/duplicate keys from Gemini response.
+                # Only the exact campo names from self.campos_extracao should be stored.
 
                 status_ext = res.get('status_extracao')
                 if status_ext in ["Concluída", "Pendente"]:
@@ -5855,18 +5892,7 @@ Retorne EXCLUSIVAMENTE um objeto JSON válido com a seguinte estrutura:
 
                     # If user is currently looking at this paper, refresh UI widgets live
                     if self.selected_paper_index_t2 is not None and str(self.current_session['trabalhos'][self.selected_paper_index_t2]['id']) == str(paper['id']):
-                        for field, txt_widget in self.dynamic_vars_t2.get('respostas', {}).items():
-                            val_f = respostas.get(field, "")
-                            if val_f:
-                                txt_widget.delete("1.0", tk.END)
-                                txt_widget.insert(tk.END, str(val_f))
-
-                        if hasattr(self, 'dynamic_vars_t2') and 'status_extracao' in self.dynamic_vars_t2:
-                            self.dynamic_vars_t2['status_extracao'].set(ext.get('status_extracao', 'Concluída'))
-
-                        if hasattr(self, 'txt_observacoes_t2') and obs:
-                            self.txt_observacoes_t2.delete("1.0", tk.END)
-                            self.txt_observacoes_t2.insert(tk.END, obs)
+                        self.update_dynamic_form_t2(paper)
 
                     self.status_var.set(f"✨ Gemini concluiu a extração para o trabalho #{paper.get('id')}.")
                     messagebox.showinfo("Parceiro de Extração Gemini", f"Extração de dados concluída para o trabalho #{paper.get('id')}!\n\nOs campos de extração e observações foram salvos com sucesso.")
