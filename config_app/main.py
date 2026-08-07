@@ -4748,7 +4748,11 @@ class SystematicReviewApp(tk.Tk):
             messagebox.showinfo("Sucesso", f"Projeto carregado com sucesso!\n\nCarregados {num_trabalhos} trabalhos.")
 
     def get_gemini_config_path(self):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+        if getattr(sys, 'frozen', False):
+            # When running as PyInstaller exe, save config next to the executable
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
         return os.path.join(base_dir, "config_gemini.json")
 
     def load_gemini_config(self):

@@ -151,18 +151,24 @@ python config_app/main.py
 
 ```text
 RSAC/
-├── config_app/                  # Interface Gráfica e Núcleo do Sistema
+├── config_app/                  # Interface Gráfica e Núcleo do Sistema (Tkinter)
 │   ├── main.py                  # Código-fonte principal da aplicação
-│   └── config_gemini.json       # Arquivo de configuração local de API
+│   ├── core/                    # Eschemas de validação de configuração
+│   └── utils/                   # Resolução de caminhos e compatibilidade DPI
+├── src/                         # Camadas de arquitetura (Clean Architecture)
+│   ├── core/                    # Entidades de domínio, serviços e comandos
+│   ├── infrastructure/          # Parsers Gemini, cache LRU, sanitização de texto
+│   └── presentation/            # Sistema de temas, tipografia e componentes visuais
+├── assets/                      # Recursos de estilo e fontes embarcadas (TTF)
 ├── bdtd_harvester/              # Coletor BDTD (Teses e Dissertações)
 ├── scielo_harvester/            # Coletor SciELO (Artigos Científicos)
 ├── openalex_harvester/          # Coletor OpenAlex (Base Acadêmica Global)
 ├── pubmed_harvester/            # Coletor PubMed (Literatura Biomédica)
 ├── scopus_harvester/            # Coletor Scopus (Elsevier API)
-├── consolidar_e_deduplicar.py   # Utilitário de consolidação e deduplicação
-├── baixar_pdfs.py               # Módulo de download automatizado de PDFs
-├── Iniciar_Configurador.bat     # Utilitário de execução em ambiente Windows
-├── Procedimento_Uso_Sistema_Revisao.md # Manual técnico de procedimentos metodológicos
+├── tests/                       # Suíte completa de testes automatizados (pytest)
+├── ConfiguradorRevisao.spec     # Especificação PyInstaller para build em .exe único
+├── build.bat                    # Script de compilação automatizada do executável
+├── Iniciar_Configurador.bat     # Atalho de execução via Python
 └── README.md                    # Documentação técnica do sistema
 ```
 

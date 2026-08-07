@@ -33,7 +33,7 @@ def normalize_title(title: Optional[str]) -> str:
     if not title:
         return ""
     s = str(title).strip().lower()
-    if s in ["nao informado", "não informado", "none", "n/a", "sem titulo", "sem título"]:
+    if s in ["nao informado", "não informado", "none", "n/a", "nan", "sem titulo", "sem título"]:
         return ""
     # Remove acentuação usando decomposição NFD
     s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')

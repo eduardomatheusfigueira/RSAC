@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 def _get_fonts_dir() -> str:
     """Retorna o caminho absoluto para assets/fonts/."""
     if getattr(sys, 'frozen', False):
-        # PyInstaller bundle
-        base = os.path.dirname(sys.executable)
+        # PyInstaller bundle: fonts are extracted to _MEIPASS
+        base = sys._MEIPASS
     else:
         # Desenvolvimento: raiz do workspace (2 níveis acima de src/presentation/)
         base = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
