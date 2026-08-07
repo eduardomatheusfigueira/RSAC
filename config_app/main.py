@@ -205,6 +205,7 @@ class SystematicReviewApp(tk.Tk):
         self.protocol_db_vars = {}
 
         # Initialize Gemini AI Config
+        self.var_ai_enabled = tk.BooleanVar(value=True)  # Global toggle for AI features
         self.gemini_api_keys = []  # List of API keys for rotation
         self.gemini_current_key_index = 0  # Current key index for rotation
         self.gemini_exhausted_keys = set()  # Keys that hit quota limits this session
@@ -231,6 +232,9 @@ class SystematicReviewApp(tk.Tk):
         
         # Load defaults
         self.load_default_values()
+
+        # Apply initial AI visibility state
+        self.update_ai_feature_visibility()
 
     def create_header(self):
         """Creates the top header area of the application."""
@@ -398,12 +402,17 @@ class SystematicReviewApp(tk.Tk):
         self.notebook.add(self.tab_general, text="Configuração Geral")
         self.setup_tab_general()
         
-        # Production Tab 3: Triagem de Trabalhos
+        # Production Tab 3: Configuração da I.A. (Dedicada)
+        self.tab_ai_config = ttk.Frame(self.notebook, padding=15)
+        self.notebook.add(self.tab_ai_config, text="🤖 Configuração da I.A.")
+        self.setup_tab_ai_config()
+        
+        # Production Tab 4: Triagem de Trabalhos
         self.tab_triagem = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(self.tab_triagem, text="Triagem de Trabalhos")
         self.setup_tab_triagem()
         
-        # Production Tab 4: Triagem Fase 2 - Extração de Dados
+        # Production Tab 5: Triagem Fase 2 - Extração de Dados
         self.tab_triagem_2 = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(self.tab_triagem_2, text="Triagem 2 - Extração")
         self.setup_tab_triagem_2()
@@ -413,9 +422,6 @@ class SystematicReviewApp(tk.Tk):
 
         # Initialize Harvester Config Toplevel Window
         self.init_harvester_config_window()
-        
-        # Bind tab change event for auto scanning
-        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
     def on_tab_changed(self, event):
         """Triggers when notebook tab is changed."""
@@ -473,11 +479,11 @@ class SystematicReviewApp(tk.Tk):
         paned.add(left_panel, weight=0)
         
         # 1. Protocol Choice Card
-        choice_frame = ttk.LabelFrame(left_panel, text="Escolha do Protocolo", padding=10)
-        choice_frame.pack(fill="x", pady=5, padx=5)
+        self.choice_frame_protocol = ttk.LabelFrame(left_panel, text="Escolha do Protocolo", padding=10)
+        self.choice_frame_protocol.pack(fill="x", pady=5, padx=5)
         
-        ttk.Label(choice_frame, text="Protocolo Metodológico:", style="Bold.TLabel").pack(anchor="w", pady=(0, 5))
-        self.cb_protocol_type = ttk.Combobox(choice_frame, values=[
+        ttk.Label(self.choice_frame_protocol, text="Protocolo Metodológico:", style="Bold.TLabel").pack(anchor="w", pady=(0, 5))
+        self.cb_protocol_type = ttk.Combobox(self.choice_frame_protocol, values=[
             "PRISMA-P (Saúde)",
             "Campbell (Sociais)",
             "CEE/ROSES (Ecologia)",
@@ -491,34 +497,34 @@ class SystematicReviewApp(tk.Tk):
         self.cb_protocol_type.bind("<<ComboboxSelected>>", self.on_protocol_type_changed)
         
         # 1.5. AI Research Partner Card
-        ai_frame = ttk.LabelFrame(left_panel, text="🤖 Parceiro de Pesquisa (I.A.)", padding=10)
-        ai_frame.pack(fill="x", pady=5, padx=5)
+        self.ai_frame_protocol = ttk.LabelFrame(left_panel, text="🤖 Parceiro de Pesquisa (I.A.)", padding=10)
+        self.ai_frame_protocol.pack(fill="x", pady=5, padx=5)
         
-        ttk.Label(ai_frame, text="Descreva sua pesquisa:", style="Bold.TLabel").pack(anchor="w", pady=(0, 2))
-        ttk.Label(ai_frame, text="Tema, objetivos e o que quer investigar:", style="Subtitle.TLabel").pack(anchor="w", pady=(0, 4))
+        ttk.Label(self.ai_frame_protocol, text="Descreva sua pesquisa:", style="Bold.TLabel").pack(anchor="w", pady=(0, 2))
+        ttk.Label(self.ai_frame_protocol, text="Tema, objetivos e o que quer investigar:", style="Subtitle.TLabel").pack(anchor="w", pady=(0, 4))
         
-        self.txt_ai_research_prompt = scrolledtext.ScrolledText(ai_frame, wrap="word", font=("Segoe UI", 9), height=5)
+        self.txt_ai_research_prompt = scrolledtext.ScrolledText(self.ai_frame_protocol, wrap="word", font=("Segoe UI", 9), height=5)
         self.txt_ai_research_prompt.pack(fill="x", pady=(0, 6))
         
         self.btn_ai_fill_protocol = ttk.Button(
-            ai_frame, 
+            self.ai_frame_protocol, 
             text="✨ Sugerir Protocolo com I.A.", 
             style="Primary.TButton", 
             command=self.run_ai_protocol_partner
         )
         self.btn_ai_fill_protocol.pack(fill="x", pady=(0, 4))
         
-        self.lbl_ai_protocol_status = ttk.Label(ai_frame, text="", style="Subtitle.TLabel", wraplength=210)
+        self.lbl_ai_protocol_status = ttk.Label(self.ai_frame_protocol, text="", style="Subtitle.TLabel", wraplength=210)
         self.lbl_ai_protocol_status.pack(anchor="w")
         
         # 2. File Actions Card
-        files_frame = ttk.LabelFrame(left_panel, text="Ações do Protocolo", padding=10)
-        files_frame.pack(fill="x", pady=5, padx=5)
+        self.files_frame_protocol = ttk.LabelFrame(left_panel, text="Ações do Protocolo", padding=10)
+        self.files_frame_protocol.pack(fill="x", pady=5, padx=5)
         
-        btn_load = ttk.Button(files_frame, text="Carregar Protocolo (.json)", style="Secondary.TButton", command=self.load_protocol_json)
+        btn_load = ttk.Button(self.files_frame_protocol, text="Carregar Protocolo (.json)", style="Secondary.TButton", command=self.load_protocol_json)
         btn_load.pack(fill="x", pady=3)
         
-        btn_save = ttk.Button(files_frame, text="Salvar Protocolo (.json)", style="Secondary.TButton", command=self.save_protocol_json)
+        btn_save = ttk.Button(self.files_frame_protocol, text="Salvar Protocolo (.json)", style="Secondary.TButton", command=self.save_protocol_json)
         btn_save.pack(fill="x", pady=3)
         
         # 3. Next Stage Action Card
@@ -2058,60 +2064,103 @@ class SystematicReviewApp(tk.Tk):
         btn_run = ttk.Button(exec_frame, text="Executar Busca", style="Primary.TButton", command=self.run_search_execution)
         btn_run.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(5, 0))
 
-        # Gemini AI Configuration Card
-        gemini_frame = ttk.LabelFrame(inner, text="Configuração do Gemini AI (Parceiro de Triagem)", padding=15)
-        gemini_frame.pack(fill="x", pady=(15, 0))
-        gemini_frame.columnconfigure(1, weight=1)
-
-        # --- Multi API Key Management ---
-        ttk.Label(gemini_frame, text="Chaves de API do Gemini:", style="Bold.TLabel").grid(row=0, column=0, sticky="nw", pady=5)
-
-        keys_container = ttk.Frame(gemini_frame)
+    def setup_tab_ai_config(self):
+        """Builds the dedicated AI Configuration tab layout with global on/off toggle and key management."""
+        inner = self._make_scrollable_tab(self.tab_ai_config)
+        
+        # 1. Global Activation Switch Card
+        toggle_frame = ttk.LabelFrame(inner, text="Controle de Ativação da Inteligência Artificial", padding=15)
+        toggle_frame.pack(fill="x", pady=(0, 15))
+        toggle_frame.columnconfigure(0, weight=1)
+        toggle_frame.columnconfigure(1, weight=1)
+        
+        chk_ai = ttk.Checkbutton(
+            toggle_frame,
+            text="Ativar Recursos de Inteligência Artificial (Google Gemini)",
+            variable=self.var_ai_enabled,
+            command=self.on_ai_toggle_changed
+        )
+        chk_ai.grid(row=0, column=0, sticky="w", pady=(0, 5))
+        
+        self.lbl_ai_status_badge = ttk.Label(
+            toggle_frame,
+            text="● Recursos de I.A. Ativos",
+            font=("Segoe UI", 9, "bold"),
+            foreground="#1e7e34"
+        )
+        self.lbl_ai_status_badge.grid(row=0, column=1, sticky="e", padx=10, pady=(0, 5))
+        
+        desc_lbl = ttk.Label(
+            toggle_frame,
+            text="Quando desativado, todos os botões e painéis de I.A. são ocultados do aplicativo, permitindo um fluxo de trabalho 100% manual e limpo.",
+            style="Subtitle.TLabel",
+            wraplength=700
+        )
+        desc_lbl.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        
+        # 2. Multi API Key Management Card
+        keys_frame = ttk.LabelFrame(inner, text="Chaves de API do Google Gemini (Multi-Key com Rotação de Cota)", padding=15)
+        keys_frame.pack(fill="x", pady=(0, 15))
+        keys_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(keys_frame, text="Chaves Cadastradas:", style="Bold.TLabel").grid(row=0, column=0, sticky="nw", pady=5)
+        
+        keys_container = ttk.Frame(keys_frame)
         keys_container.grid(row=0, column=1, columnspan=2, sticky="ew", padx=10, pady=5)
         keys_container.columnconfigure(0, weight=1)
-
+        
         self.lst_gemini_keys = tk.Listbox(keys_container, height=4, font=("Segoe UI", 9), selectmode=tk.SINGLE)
         self.lst_gemini_keys.grid(row=0, column=0, sticky="ew", pady=(0, 5))
         self._refresh_gemini_keys_listbox()
-
+        
         self.lbl_gemini_key_status = ttk.Label(keys_container, text="", foreground="#555555", font=("Segoe UI", 8))
         self.lbl_gemini_key_status.grid(row=1, column=0, sticky="w")
         self._update_gemini_key_status_label()
-
+        
         # Add key row
         add_key_frame = ttk.Frame(keys_container)
         add_key_frame.grid(row=2, column=0, sticky="ew", pady=(5, 0))
         add_key_frame.columnconfigure(0, weight=1)
-
+        
         self.ent_new_gemini_key = ttk.Entry(add_key_frame, show="*", width=40)
         self.ent_new_gemini_key.grid(row=0, column=0, sticky="ew", padx=(0, 5))
         self.ent_new_gemini_key.bind("<Return>", lambda e: self._add_gemini_key())
-
+        
         btn_keys_frame = ttk.Frame(add_key_frame)
         btn_keys_frame.grid(row=0, column=1, sticky="e")
-
-        ttk.Button(btn_keys_frame, text="+ Adicionar", style="Secondary.TButton", command=self._add_gemini_key).pack(side="left", padx=2)
-        ttk.Button(btn_keys_frame, text="- Remover", style="Secondary.TButton", command=self._remove_gemini_key).pack(side="left", padx=2)
-
-        # --- Model selector ---
-        ttk.Label(gemini_frame, text="Modelo do Gemini:", style="Bold.TLabel").grid(row=1, column=0, sticky="w", pady=5)
+        
+        ttk.Button(btn_keys_frame, text="+ Adicionar Chave", style="Secondary.TButton", command=self._add_gemini_key).pack(side="left", padx=2)
+        ttk.Button(btn_keys_frame, text="- Remover Chave", style="Secondary.TButton", command=self._remove_gemini_key).pack(side="left", padx=2)
+        
+        # 3. Model selector Card
+        model_frame = ttk.LabelFrame(inner, text="Modelo do Gemini AI", padding=15)
+        model_frame.pack(fill="x", pady=(0, 15))
+        model_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(model_frame, text="Modelo Ativo:", style="Bold.TLabel").grid(row=0, column=0, sticky="w", pady=5)
         cb_gemini_model = ttk.Combobox(
-            gemini_frame,
+            model_frame,
             textvariable=self.gemini_model,
             values=["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.5-pro"],
             state="normal",
-            width=25
+            width=28
         )
-        cb_gemini_model.grid(row=1, column=1, sticky="w", padx=10, pady=5)
-
-        # --- Action buttons ---
-        btn_gemini_actions = ttk.Frame(gemini_frame)
-        btn_gemini_actions.grid(row=2, column=0, columnspan=3, sticky="w", pady=(10, 0))
-
-        btn_save_gemini = ttk.Button(btn_gemini_actions, text="Salvar Configuração", style="Primary.TButton", command=self.save_gemini_config)
+        cb_gemini_model.grid(row=0, column=1, sticky="w", padx=10, pady=5)
+        
+        ttk.Label(
+            model_frame,
+            text="Recomendado: 'gemini-2.5-flash' ou 'gemini-3.6-flash' para triagem rápida e respostas estruturadas.",
+            style="Subtitle.TLabel"
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        
+        # 4. Action and Diagnostics Card
+        actions_frame = ttk.LabelFrame(inner, text="Diagnóstico e Ações", padding=15)
+        actions_frame.pack(fill="x")
+        
+        btn_save_gemini = ttk.Button(actions_frame, text="Salvar Configurações de IA", style="Primary.TButton", command=self.save_gemini_config)
         btn_save_gemini.pack(side="left", padx=(0, 10))
-
-        btn_test_gemini = ttk.Button(btn_gemini_actions, text="Testar Conexão API", style="Secondary.TButton", command=self.test_gemini_connection)
+        
+        btn_test_gemini = ttk.Button(actions_frame, text="Testar Conexão API", style="Secondary.TButton", command=self.test_gemini_connection)
         btn_test_gemini.pack(side="left")
 
     def setup_tab_bdtd(self):
@@ -4761,6 +4810,9 @@ class SystematicReviewApp(tk.Tk):
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                    # Load AI activation toggle state (defaults to True)
+                    if "ai_enabled" in data:
+                        self.var_ai_enabled.set(bool(data["ai_enabled"]))
                     # Support new multi-key format
                     if "api_keys" in data and isinstance(data["api_keys"], list):
                         self.gemini_api_keys = [k for k in data["api_keys"] if k and k.strip()]
@@ -4775,6 +4827,7 @@ class SystematicReviewApp(tk.Tk):
     def save_gemini_config(self, show_msg=True):
         path = self.get_gemini_config_path()
         data = {
+            "ai_enabled": bool(self.var_ai_enabled.get()),
             "api_keys": self.gemini_api_keys.copy(),
             "model": self.gemini_model.get().strip() or "gemini-3.5-flash"
         }
@@ -4782,10 +4835,78 @@ class SystematicReviewApp(tk.Tk):
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             if show_msg:
-                messagebox.showinfo("Sucesso", f"Configurações do Gemini AI salvas com sucesso!\n{len(self.gemini_api_keys)} chave(s) de API configurada(s).")
+                status_txt = "Ativados" if self.var_ai_enabled.get() else "Desativados (Modo Manual)"
+                messagebox.showinfo("Sucesso", f"Configurações do Gemini AI salvas com sucesso!\nRecursos de I.A.: {status_txt}\n{len(self.gemini_api_keys)} chave(s) de API configurada(s).")
         except Exception as e:
             if show_msg:
                 messagebox.showerror("Erro", f"Erro ao salvar configurações do Gemini: {e}")
+
+    def on_ai_toggle_changed(self):
+        """Called when the user flips the AI active/inactive toggle."""
+        is_enabled = self.var_ai_enabled.get()
+        self.update_ai_feature_visibility()
+        self.save_gemini_config(show_msg=False)
+        state_str = "ativados" if is_enabled else "desativados (modo 100% manual)"
+        self.status_var.set(f"Recursos de I.A. {state_str}.")
+
+    def update_ai_feature_visibility(self):
+        """Dynamically shows or hides all AI widgets across all tabs based on self.var_ai_enabled."""
+        is_enabled = self.var_ai_enabled.get()
+
+        # 1. Update status badge in the dedicated AI tab
+        if hasattr(self, 'lbl_ai_status_badge') and self.lbl_ai_status_badge.winfo_exists():
+            if is_enabled:
+                self.lbl_ai_status_badge.configure(
+                    text="● Recursos de I.A. Ativos",
+                    foreground="#1e7e34"
+                )
+            else:
+                self.lbl_ai_status_badge.configure(
+                    text="○ Recursos de I.A. Desativados (Modo Manual)",
+                    foreground="#888888"
+                )
+
+        # 2. Tab 1 (Protocolo de Pesquisa): AI Research Partner Card
+        if hasattr(self, 'ai_frame_protocol') and self.ai_frame_protocol.winfo_exists():
+            if is_enabled:
+                if hasattr(self, 'files_frame_protocol') and self.files_frame_protocol.winfo_exists():
+                    self.ai_frame_protocol.pack(fill="x", pady=5, padx=5, before=self.files_frame_protocol)
+                else:
+                    self.ai_frame_protocol.pack(fill="x", pady=5, padx=5)
+            else:
+                self.ai_frame_protocol.pack_forget()
+
+        # 3. Tab 4 (Triagem de Trabalhos - Triagem 1): Batch Loop Buttons
+        if hasattr(self, 'btn_batch_gemini_t1') and self.btn_batch_gemini_t1.winfo_exists():
+            if is_enabled:
+                self.btn_batch_gemini_t1.pack(side="left", padx=2)
+            else:
+                self.btn_batch_gemini_t1.pack_forget()
+
+        if hasattr(self, 'btn_stop_batch_t1') and self.btn_stop_batch_t1.winfo_exists():
+            if is_enabled:
+                self.btn_stop_batch_t1.pack(side="left", padx=2)
+            else:
+                self.btn_stop_batch_t1.pack_forget()
+
+        # 4. Tab 5 (Triagem 2 - Extração): Suggest field, PDF extract button, and footer extract button
+        if hasattr(self, 'btn_suggest_field_gemini') and self.btn_suggest_field_gemini.winfo_exists():
+            if is_enabled:
+                self.btn_suggest_field_gemini.pack(fill="x", pady=2)
+            else:
+                self.btn_suggest_field_gemini.pack_forget()
+
+        if hasattr(self, 'btn_gemini_pdf_t2') and self.btn_gemini_pdf_t2.winfo_exists():
+            if is_enabled:
+                self.btn_gemini_pdf_t2.pack(side="left", padx=2, expand=True, fill="x")
+            else:
+                self.btn_gemini_pdf_t2.pack_forget()
+
+        if hasattr(self, 'btn_gemini_t2') and self.btn_gemini_t2.winfo_exists():
+            if is_enabled:
+                self.btn_gemini_t2.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+            else:
+                self.btn_gemini_t2.grid_remove()
 
     # --- Multi API Key helpers ---
 
