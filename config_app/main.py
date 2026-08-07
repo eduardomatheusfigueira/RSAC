@@ -274,12 +274,12 @@ class SystematicReviewApp(tk.Tk):
         divider.grid(row=1, column=0, sticky="ew", padx=20)
 
     def init_harvester_config_window(self):
-        """Initializes the harvester configuration window and tabs."""
+        """Initializes the system configuration window (AI and Harvesters)."""
         if hasattr(self, 'harvester_win') and self.harvester_win is not None and self.harvester_win.winfo_exists():
             return
 
         self.harvester_win = tk.Toplevel(self)
-        self.harvester_win.title("⚙️ Configuração das Fontes de Busca (Harvesters)")
+        self.harvester_win.title("⚙️ Configurações do Sistema (I.A. & Fontes de Busca)")
         self.harvester_win.geometry("900x650")
         self.harvester_win.configure(bg=self.bg_color)
         self.harvester_win.protocol("WM_DELETE_WINDOW", self.harvester_win.withdraw)
@@ -288,10 +288,10 @@ class SystematicReviewApp(tk.Tk):
         top_frame = ttk.Frame(self.harvester_win, padding=15)
         top_frame.pack(fill="x")
 
-        title_lbl = ttk.Label(top_frame, text="⚙️ Configuração das Fontes de Busca (Harvesters)", style="Title.TLabel")
+        title_lbl = ttk.Label(top_frame, text="⚙️ Configurações do Sistema", style="Title.TLabel")
         title_lbl.pack(anchor="w")
 
-        sub_lbl = ttk.Label(top_frame, text="Ajuste os parâmetros de busca, limites, diretórios de banco de dados e chaves de API das fontes.", style="Subtitle.TLabel")
+        sub_lbl = ttk.Label(top_frame, text="Ajuste os parâmetros de Inteligência Artificial (Google Gemini) e as configurações das fontes de busca.", style="Subtitle.TLabel")
         sub_lbl.pack(anchor="w", pady=(2, 0))
 
         ttk.Separator(self.harvester_win, orient="horizontal").pack(fill="x", padx=15)
@@ -300,7 +300,12 @@ class SystematicReviewApp(tk.Tk):
         config_notebook = ttk.Notebook(self.harvester_win, padding=10)
         config_notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Harvester Config Tabs (child of config_notebook)
+        # 1. AI Configuration Tab (inside Settings Window)
+        self.tab_ai_config = ttk.Frame(config_notebook, padding=15)
+        config_notebook.add(self.tab_ai_config, text="🤖 Inteligência Artificial (Gemini)")
+        self.setup_tab_ai_config()
+
+        # 2. Harvester Config Tabs
         self.tab_bdtd = ttk.Frame(config_notebook, padding=15)
         config_notebook.add(self.tab_bdtd, text="BDTD Harvester")
         self.setup_tab_bdtd()
@@ -332,7 +337,7 @@ class SystematicReviewApp(tk.Tk):
         self.harvester_win.withdraw()
 
     def open_harvester_config_window(self):
-        """Shows the harvester configuration window."""
+        """Shows the configuration window."""
         if not hasattr(self, 'harvester_win') or self.harvester_win is None or not self.harvester_win.winfo_exists():
             self.init_harvester_config_window()
 
@@ -388,7 +393,7 @@ class SystematicReviewApp(tk.Tk):
         return inner_frame
 
     def create_notebook(self):
-        """Creates the main production tabbed area (Notebook) and initializes Harvester Config Window."""
+        """Creates the main production tabbed area (Notebook) and initializes Config Window."""
         self.notebook = ttk.Notebook(self, padding=10)
         self.notebook.grid(row=2, column=0, sticky="nsew", padx=5, pady=0)
         
@@ -402,17 +407,12 @@ class SystematicReviewApp(tk.Tk):
         self.notebook.add(self.tab_general, text="Configuração Geral")
         self.setup_tab_general()
         
-        # Production Tab 3: Configuração da I.A. (Dedicada)
-        self.tab_ai_config = ttk.Frame(self.notebook, padding=15)
-        self.notebook.add(self.tab_ai_config, text="🤖 Configuração da I.A.")
-        self.setup_tab_ai_config()
-        
-        # Production Tab 4: Triagem de Trabalhos
+        # Production Tab 3: Triagem de Trabalhos
         self.tab_triagem = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(self.tab_triagem, text="Triagem de Trabalhos")
         self.setup_tab_triagem()
         
-        # Production Tab 5: Triagem Fase 2 - Extração de Dados
+        # Production Tab 4: Triagem Fase 2 - Extração de Dados
         self.tab_triagem_2 = ttk.Frame(self.notebook, padding=15)
         self.notebook.add(self.tab_triagem_2, text="Triagem 2 - Extração")
         self.setup_tab_triagem_2()
@@ -420,7 +420,7 @@ class SystematicReviewApp(tk.Tk):
         # Bind tab change event for auto scanning
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
-        # Initialize Harvester Config Toplevel Window
+        # Initialize Config Toplevel Window
         self.init_harvester_config_window()
 
     def on_tab_changed(self, event):
